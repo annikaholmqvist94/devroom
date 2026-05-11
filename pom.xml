@@ -12,8 +12,7 @@
     <description>Distributed chat with @-mentionable AI mentors</description>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>4.0.3</spring-boot.version>
         <jjwt.version>0.13.0</jjwt.version>
