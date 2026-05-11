@@ -23,7 +23,12 @@ dependency-reduced-pom.xml
 # Node / Next.js
 node_modules/
 .next/
-.env.local
+
+# Environment files (template files .env.example are committed; actual values are not)
+.env
+.env.*
+!.env.example
+!.env.*.example
 
 # Secrets
 *.pem
