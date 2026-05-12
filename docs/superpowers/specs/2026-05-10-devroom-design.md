@@ -6,7 +6,8 @@
 **Tidsram:** 3,5 veckor heltid (~140h, planerat 122h effektiv tid med 10% buffert)
 
 **Revisionslogg:**
-- **2026-05-12:** Auth-arkitekturen pivotades från handskriven JWT-issuer/validator (med JJWT) till Spring Authorization Server + spring-boot-starter-oauth2-resource-server + spring-boot-starter-oauth2-client (BFF Pattern med HttpOnly cookie-session). JWKS för publik-nyckel-distribution. Client Credentials grant för Bot Services service-token. Påverkar sektion 2.3, 4, 5.3, 10, 11, 13. Tidsbudget +~17h, fortfarande inom 140h.
+- **2026-05-12 (rev. 1):** Auth-arkitekturen pivotades från handskriven JWT-issuer/validator (med JJWT) till Spring Authorization Server + spring-boot-starter-oauth2-resource-server + spring-boot-starter-oauth2-client (BFF Pattern med HttpOnly cookie-session). JWKS för publik-nyckel-distribution. Client Credentials grant för Bot Services service-token. Påverkar sektion 2.3, 4, 5.3, 10, 11, 13.
+- **2026-05-12 (rev. 2):** Två efterföljande beslut: (a) BFF implementeras som **Spring Cloud Gateway** istället för Spring Web — TokenRelay-pattern, reactive stack, "Gateway" i arkitekturen ersätter "BFF" som komponentnamn men BFF Pattern (cookie-session) bevaras. Kong API Gateway övervägt och avvisat (se ADR-0003). (b) Auth Service:s RSA-keypair **genereras in-memory vid uppstart** istället för att läsas från PEM-fil — inga PEM-filer någonstans i systemet, restart = ny nyckel = befintliga tokens invalida. Future-work: Vault/KMS för persistent key. Totalt tidsbudget-tillägg från båda pivoter: ~25h, fortfarande inom 140h (marginal ~25h kvar).
 
 ---
 
@@ -35,10 +36,10 @@ Devroom är en team-chattapplikation för 2-10 utvecklare med fyra @-mentionable
 
 | Tjänst | Ansvar | Stack | Databas |
 |---|---|---|---|
-| **BFF** | REST-fasad mot klient. Validerar user-JWT. Propagerar JWT till interna tjänster. | Spring Boot 4, Java 21 | — |
+| **Gateway** (BFF-roll) | Spring Cloud Gateway. Tar emot HTTP-anrop från frontend, OAuth2 Authorization Code + PKCE-flöde mot Auth Service, server-side session, HttpOnly cookie till browser, TokenRelay-filter propagerar access-token till nedströms-tjänster. | Spring Boot 4 + Spring Cloud Gateway (reactive) | — (in-memory session, Redis i prod) |
 | **Auth Service** | Signup + login. Utfärdar user-JWT. Skriver `credentials` + `outbox_events` atomärt. Pollar outbox och publicerar `user.registered` till RabbitMQ. | Spring Boot 4 | AuthDB (Postgres) |
 | **User Service** | Profil-CRUD, team-uppslag. Konsumerar `user.registered` (idempotent). Exponerar gRPC för avsändar- och mention-uppslag. Seedar mentor-rader (`is_system=true`) vid uppstart. | Spring Boot 4 | UserDB (Postgres) |
-| **Message Service** | Tar emot meddelanden via REST, resolvar mentions via gRPC mot User, lagrar, publicerar `message-published`. Accepterar både user-JWT (BFF-väg) och service-JWT (Bot-väg). | Spring Boot 4 | MessageDB (Postgres) |
+| **Message Service** | Tar emot meddelanden via REST, resolvar mentions via gRPC mot User, lagrar, publicerar `message-published`. Accepterar både user-JWT (Gateway-väg) och service-JWT (Bot-väg). | Spring Boot 4 | MessageDB (Postgres) |
 | **Bot Service** | Konsumerar `message-published`, filtrerar på mentions med `is_system=true`, slår upp avsändarinfo via gRPC, anropar Nordic Dev Mentor-kärnan, postar svar via REST mot Message Service med service-JWT. | Spring Boot 4, **wrappar Nordic Dev Mentor** | — |
 | **Frontend** | Login/signup, kanal-lista, kanalvy med trådar, polling 3s. | Next.js 16, React 19, TS, Tailwind 4 | — |
 
@@ -48,12 +49,14 @@ Devroom är en team-chattapplikation för 2-10 utvecklare med fyra @-mentionable
                     +-----------------------+
                     |  Next.js (polling 3s) |
                     +----------+------------+
-                               | REST + user-JWT
+                               | HTTP + session cookie
                                v
                     +-----------------------+
-                    |          BFF          | (validerar JWT)
+                    |       Gateway         | (Spring Cloud Gateway,
+                    |   OAuth2 client +     |  session -> JWT relay)
+                    |    TokenRelay         |
                     +-+---------+----------++
-                 REST | REST    | REST + JWT propageras
+                 HTTP | HTTP    | HTTP + Bearer JWT propageras
                       v         v          v
               +----------+ +---------+ +--------------+
               |   Auth   | |   User  | |   Message    |
@@ -90,14 +93,14 @@ Devroom är en team-chattapplikation för 2-10 utvecklare med fyra @-mentionable
 1. **Mentor-identitet:** hybrid system-users i User Service (`is_system=true`, kan inte logga in)
 2. **Datamodell:** kanaler per team + trådar (`parent_message_id`), ingen DM
 3. **Signup:** outbox pattern + event-driven choreography (Auth → outbox → RabbitMQ → User). Outbox-mönstret är oförändrat av OAuth2-pivoten — det handlar om dual-write-problemet, inte JWT.
-4. **Säkerhet (pivot 2026-05-12):** Auth Service = **Spring Authorization Server** (utfärdar JWTs, exponerar `/.well-known/jwks.json`). User/Message Service = **spring-boot-starter-oauth2-resource-server** (validerar via JWKS). BFF = **spring-boot-starter-oauth2-client** (Authorization Code + PKCE-flöde, server-side session, HttpOnly cookie mot frontend). Bot Service = **Client Credentials grant** för service-auth.
+4. **Säkerhet (pivot 2026-05-12):** Auth Service = **Spring Authorization Server** (utfärdar JWTs, exponerar `/.well-known/jwks.json`, RSA-keypair genereras in-memory vid uppstart). User/Message Service = **spring-boot-starter-oauth2-resource-server** (validerar via JWKS). Gateway (= BFF-roll) = **Spring Cloud Gateway + spring-boot-starter-oauth2-client** (Authorization Code + PKCE-flöde, server-side session, HttpOnly cookie mot frontend, TokenRelay-filter mot nedströms). Bot Service = **Client Credentials grant** för service-auth.
 5. **gRPC-användning:** Message → User (vid skriv för mention-resolution) och Bot → User (avsändar-uppslag). gRPC-anrop autentiseras med JWT via Bearer-metadata (samma Resource Server-stack som REST).
 6. **Bot → Message:** REST med Client Credentials-access-token (scope `bot:write`). Bot inkluderar `as_user_id` i body som måste peka på `is_system=true` user.
-7. **Polling:** periodic 3s från klient mot BFF (long-polling och WebSockets avslagna).
+7. **Polling:** periodic 3s från klient mot Gateway (long-polling och WebSockets avslagna).
 8. **Spring Boot 4.0.6** överallt — levererar Spring Security 7.0.5+ med Authorization Server, Resource Server och OAuth2 Client.
 9. **Build-system:** Maven multi-module (parent POM + module POMs) för konsistens med Nordic Dev Mentor.
 10. **Lokal Kubernetes:** Minikube med Docker driver. Ingen ingress controller — port-forward för demon.
-11. **Frontend session (pivot 2026-05-12):** HttpOnly session-cookie via BFF — **inte localStorage**. Frontend ser aldrig en JWT. `fetch(..., { credentials: 'include' })` för alla anrop mot BFF.
+11. **Frontend session (pivot 2026-05-12):** HttpOnly session-cookie via Gateway — **inte localStorage**. Frontend ser aldrig en JWT. `fetch(..., { credentials: 'include' })` för alla anrop mot Gateway.
 
 ---
 
@@ -207,7 +210,7 @@ Den exponerar standardendpoints (URL relativt service-host):
 |---|---|
 | `/.well-known/openid-configuration` | OpenID Connect discovery — alla URL:er som klienter behöver |
 | `/.well-known/jwks.json` | **JWKS** — publika nycklar som JSON, fetchas av resource servers |
-| `/oauth2/authorization/<registration-id>` | (Auth Server triggerar inte själv detta — BFF gör det) |
+| `/oauth2/authorization/<registration-id>` | (Auth Server triggerar inte själv detta — Gateway gör det) |
 | `/oauth2/authorize` | Authorization Code-flödets entry-point |
 | `/oauth2/token` | Token exchange (code → tokens, eller client_credentials → token) |
 | `/login` | Inbyggd login-form (vi använder default, ingen custom styling i v1) |
@@ -217,10 +220,10 @@ Den exponerar standardendpoints (URL relativt service-host):
 
 Auth Server har två registrerade OAuth2-klienter (lagrade via `JdbcRegisteredClientRepository` i AuthDB):
 
-**Klient 1: `bff`** — Authorization Code + PKCE
+**Klient 1: `gateway`** — Authorization Code + PKCE (för BFF-rollen, implementerad av Spring Cloud Gateway)
 
 ```
-client_id:        bff
+client_id:        gateway
 client_secret:    <random 32-byte string, K8s Secret>
 grant_types:      [authorization_code, refresh_token]
 redirect_uris:    [http://localhost:8080/login/oauth2/code/auth-service]
@@ -228,7 +231,7 @@ scopes:           [openid, profile]
 require_pkce:     true
 ```
 
-Användning: när en användare klickar "Logga in" på frontend, redirectas hen till BFF:s `/oauth2/authorization/auth-service` → BFF redirectar till Auth Server:s `/oauth2/authorize?...&code_challenge=...&code_challenge_method=S256`. Användaren loggar in på Auth Server:s `/login`, redirectas tillbaka med code, BFF byter code mot tokens.
+Användning: när en användare klickar "Logga in" på frontend, redirectas hen till Gateways `/oauth2/authorization/auth-service` → Gateway redirectar till Auth Server:s `/oauth2/authorize?...&code_challenge=...&code_challenge_method=S256`. Användaren loggar in på Auth Server:s `/login`, redirectas tillbaka med code, Gateway byter code mot tokens.
 
 **Klient 2: `bot-service`** — Client Credentials
 
@@ -249,7 +252,7 @@ Användning: Bot Service skickar `POST /oauth2/token` med `grant_type=client_cre
 {
   "iss": "http://auth-service:8081",
   "sub": "<user_uuid>",
-  "aud": "bff",
+  "aud": "gateway",
   "team_id": "<team_uuid>",
   "scope": "openid profile",
   "iat": 1715347200,
@@ -297,21 +300,40 @@ Spring Security gör allt automatiskt:
 
 Skriver ingen `JwtAuthenticationFilter` själv.
 
-### 4.5 BFF Pattern — HttpOnly cookie-session
+### 4.5 BFF Pattern — Spring Cloud Gateway med TokenRelay (HttpOnly cookie-session)
 
-BFF är en Spring-app med **både** `spring-boot-starter-oauth2-client` (för upstream-auth mot Auth Server) **och** `spring-boot-starter-oauth2-resource-server` (för downstream-auth när BFF propagerar token vidare). Cookie-session-mekanik:
+Gateway är en **Spring Cloud Gateway**-applikation med **både** `spring-boot-starter-oauth2-client` (för upstream-auth mot Auth Server) **och** `spring-cloud-starter-gateway-server-webflux` (reaktiv routing-stack). Cookie-session-mekaniken är identisk med klassisk BFF — men hela implementationen är ~50 rader YAML istället för handskrivna controllers, tack vare Gateways inbyggda `TokenRelay`-filter.
 
-1. Frontend klickar "Logga in" → `GET /oauth2/authorization/auth-service` på BFF
-2. BFF redirectar webläsaren till `auth-service/oauth2/authorize?...&code_challenge=...&state=...`
+**Flöde:**
+
+1. Frontend klickar "Logga in" → `GET /oauth2/authorization/auth-service` på Gateway
+2. Gateway redirectar webläsaren till `auth-service/oauth2/authorize?...&code_challenge=...&state=...`
 3. Användare loggar in på Auth Server:s `/login`
-4. Auth Server redirectar tillbaka: `bff/login/oauth2/code/auth-service?code=...&state=...`
-5. BFF byter `code` mot `access_token` + `refresh_token` via Auth Server:s `/oauth2/token`
-6. BFF lagrar tokens i server-side session (Spring Session, backas av Redis i prod — in-memory för demon)
-7. BFF sätter `SESSION=<id>; HttpOnly; Secure; SameSite=Lax`-cookie mot browser
+4. Auth Server redirectar tillbaka: `gateway/login/oauth2/code/auth-service?code=...&state=...`
+5. Gateway byter `code` mot `access_token` + `refresh_token` via Auth Server:s `/oauth2/token`
+6. Gateway lagrar tokens i server-side session (Spring Session, in-memory i v1 — Redis i prod)
+7. Gateway sätter `SESSION=<id>; HttpOnly; Secure; SameSite=Lax`-cookie mot browser
 8. Frontend gör vidare `fetch(..., { credentials: 'include' })` — cookien medskickas auto
-9. BFF läser session, attachar access-token i `Authorization: Bearer`-header mot User/Message Service
+9. Gateway:s `TokenRelay`-filter läser session, attachar access-token i `Authorization: Bearer`-header mot User/Message Service (en YAML-rad: `- TokenRelay`)
 
 Browser-JavaScript ser **aldrig** en JWT. XSS kan inte stjäla token från localStorage.
+
+**Routing-config (gist):**
+
+```yaml
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: users
+          uri: http://user-service:8082
+          predicates: [Path=/api/users/**]
+          filters: [TokenRelay]
+        - id: messages
+          uri: http://message-service:8083
+          predicates: [Path=/api/messages/**]
+          filters: [TokenRelay]
+```
 
 ### 4.6 Service-to-service auth (Bot → Message)
 
@@ -425,10 +447,10 @@ Outbox-publisher (`@Scheduled` inuti Auth Service-JVM, var 500 ms):
 | LLM-anrop failar i Bot Service | Standard-retry från Nordic Dev Mentor (429/5xx). Vid alla retries failat: NACK → DLQ. Användarens meddelande är ändå sparat — bara bot-svaret saknas. |
 | Bot Service postar svar mot Message Service som är nere | Bot Service retryar 3x med exponential backoff. Vid totalfel: NACK → DLQ. Idempotency-nyckel på POST /messages baserat på original-message-id förhindrar dubbelsvar. |
 | gRPC mot User Service failar vid mention-resolution | Hård fail. Message Service returnerar 502, klienten retryar. Inget meddelande sparas. (ADR-0007 reservpott motiverar valet.) |
-| Concurrent signup med samma email | AuthDB UNIQUE constraint → IntegrityException → BFF returnerar 409. |
+| Concurrent signup med samma email | AuthDB UNIQUE constraint → IntegrityException → Gateway returnerar 409. |
 | Mention på okänd mentor | User Service `ResolveMentions` returnerar tom lista. `mentions[]` får ingen `is_system=true` entry. Bot Service ignorerar. Användaren ser sitt meddelande men inget svar. |
 | Expired JWT | 401 från valfri tjänst. Frontend tvingar omlogin. (Ingen refresh-token för demon.) |
-| Frontend pollar och BFF nere | Frontend exponential backoff. Användaren ser stale data tills BFF återkommer. |
+| Frontend pollar och Gateway nere | Frontend exponential backoff. Användaren ser stale data tills Gateway återkommer. |
 
 ---
 
@@ -457,7 +479,7 @@ devroom/
 │       └── pom.xml
 │
 ├── services/
-│   ├── bff/pom.xml
+│   ├── gateway/pom.xml
 │   ├── auth-service/pom.xml
 │   ├── user-service/pom.xml
 │   ├── message-service/pom.xml
@@ -492,14 +514,14 @@ Varje service har sin egen `Dockerfile` (multi-stage: build + runtime). Frontend
 
 **Slutet av vecka 1:** signup via curl, JWT-validering i en dummy-tjänst, gRPC-anrop mot User Service med grpcurl. Två tjänster fungerar fristående. 4 av 5 ADR:er skrivna.
 
-### 8.2 Vecka 2: MQ + Message + BFF + Bot (G-nivå klar) (40h)
+### 8.2 Vecka 2: MQ + Message + Gateway + Bot (G-nivå klar) (40h)
 
 | Dag | Arbete |
 |---|---|
 | 6 | RabbitMQ-integration: Auth-outbox-publisher publicerar `user.registered` på riktigt, User Service konsumerar idempotent. |
 | 7 | Message Service: `channels` + `messages`-tabeller, POST /messages med JWT-validering, gRPC-anrop till User för mention-resolution. **ADR-0004 gRPC vs REST** skrivs samma dag. |
 | 8 | Message Service: GET /messages?channel_id&since, MQ-publisher för `message-published`-event. |
-| 9 | BFF: REST-fasad mot klient, JWT-validering, propagering till alla services. End-to-end via curl. |
+| 9 | Gateway: Spring Cloud Gateway-config med OAuth2 Authorization Code-flow, session-cookie, TokenRelay-routing till alla services. End-to-end via curl. |
 | 10 | Bot Service: integrera Nordic Dev Mentor som dependency, MQ-consumer, mention-filter, service-JWT, REST-publisher till Message Service. |
 
 **Slutet av vecka 2:** hela G-flödet fungerar end-to-end via curl. Mention triggar bot-svar. Alla 5 ADR:er skrivna.
@@ -540,7 +562,7 @@ Varje service har sin egen `Dockerfile` (multi-stage: build + runtime). Frontend
 
 1. Starta Minikube + deploya: `minikube start && kubectl apply -f k8s/`
 2. Visa `minikube dashboard` → peka på alla pods
-3. Port-forward frontend och BFF: `kubectl port-forward svc/frontend 3000:3000 & kubectl port-forward svc/bff 8080:8080 &`
+3. Port-forward frontend och Gateway: `kubectl port-forward svc/frontend 3000:3000 & kubectl port-forward svc/gateway 8080:8080 &`
 4. Öppna http://localhost:3000 → signa upp en ny user
 5. Visa RabbitMQ Management UI (http://localhost:15672) → peka på `user.registered`-trafiken
 6. Logga in, navigera till `#general`
@@ -573,21 +595,21 @@ Varje service har sin egen `Dockerfile` (multi-stage: build + runtime). Frontend
 
 Frontend har **ingen** auth-kod, ingen JWT-hantering, ingen localStorage. Browser-cookies sköter sessionen automatiskt.
 
-- **Login-knapp:** vanlig `<a href="/oauth2/authorization/auth-service">Logga in</a>`. Detta är BFF:s endpoint som triggar OAuth2-redirect-kedjan till Auth Server och tillbaka. Klart med 1 rad HTML.
-- **Signup:** länkar till Auth Server:s `/signup`-formulär (vi adderar det som custom controller i Plan 02). Efter lyckat signup redirectas användaren tillbaka till BFF som auto-loggar in.
-- **Logout:** vanlig `<a href="/logout">Logga ut</a>` — BFF:s Spring Security-defaultendpoint, rensar session-cookien.
-- **Sessions-cookie:** sätts av BFF, `HttpOnly`, `Secure` (i prod), `SameSite=Lax`. Browser auto-medskicker.
-- **API-anrop:** `fetch(url, { credentials: 'include' })`. **Ingen Authorization-header** — cookien räcker. BFF översätter session → access-token mot nedströms-tjänster.
+- **Login-knapp:** vanlig `<a href="/oauth2/authorization/auth-service">Logga in</a>`. Detta är Gateways endpoint som triggar OAuth2-redirect-kedjan till Auth Server och tillbaka. Klart med 1 rad HTML.
+- **Signup:** länkar till Auth Server:s `/signup`-formulär (vi adderar det som custom controller i Plan 02). Efter lyckat signup redirectas användaren tillbaka till Gateway som auto-loggar in.
+- **Logout:** vanlig `<a href="/logout">Logga ut</a>` — Gateways Spring Security-defaultendpoint, rensar session-cookien.
+- **Sessions-cookie:** sätts av Gateway, `HttpOnly`, `Secure` (i prod), `SameSite=Lax`. Browser auto-medskicker.
+- **API-anrop:** `fetch(url, { credentials: 'include' })`. **Ingen Authorization-header** — cookien räcker. Gateways TokenRelay-filter översätter session → access-token mot nedströms-tjänster.
 
-**Auth-state-detection i frontend:** vid sidladdning, gör `fetch('/api/me', { credentials: 'include' })` mot BFF. BFF returnerar `{ userId, displayName, teamId }` om inloggad, 401 om inte. Frontend visar antingen channel-listan eller en login-knapp.
+**Auth-state-detection i frontend:** vid sidladdning, gör `fetch('/api/me', { credentials: 'include' })` mot Gateway. Gateway returnerar `{ userId, displayName, teamId }` om inloggad, 401 om inte. Frontend visar antingen channel-listan eller en login-knapp.
 
 **Polling-implementation:**
 
 - `setInterval(3000)` för aktiv kanal
-- `since=<last_message_id>` query-parameter mot BFF
+- `since=<last_message_id>` query-parameter mot Gateway
 - Stop polling när tab inte är aktiv (`document.visibilityState`)
 - Exponential backoff vid fel (1s, 2s, 4s, max 30s)
-- Cookie auto-skickas — om sessionen expirerat returnerar BFF 401, frontend redirectar till login
+- Cookie auto-skickas — om sessionen expirerat returnerar Gateway 401, frontend redirectar till login
 
 ---
 
@@ -608,7 +630,7 @@ eval $(minikube docker-env)    # peka Docker CLI mot Minikubes daemon
 - En `Deployment` + `Service` för RabbitMQ
 - `Secret`s (efter OAuth2-pivoten):
   - `jwt-signing-key` — privat RSA-nyckel för Auth Server (PEM), mountad i `/etc/auth/private.pem`
-  - `oauth-client-secrets` — `bff-client-secret` och `bot-service-client-secret`
+  - `oauth-client-secrets` — `gateway-client-secret` och `bot-service-client-secret`
   - `db-credentials` — DB-användare/lösenord
   - `openrouter-api-key` — LLM-anrop från Nordic Dev Mentor inifrån Bot Service
 - `ConfigMap` för app-konfiguration (issuer-URLs, scope-listor). **Ingen publik nyckel i ConfigMap** — den distribueras via JWKS-endpoint som tjänsterna fetchar runtime.
@@ -623,7 +645,7 @@ eval $(minikube docker-env)    # peka Docker CLI mot Minikubes daemon
 
 **Resource limits:** request 256Mi/100m CPU, limit 512Mi/500m CPU per service.
 
-**Ingen ingress controller** — under demo använder vi `kubectl port-forward` för frontend (3000) och BFF (8080). Motiveras i K8s-ADR (reservpott) som "produktionssystem hade använt nginx-ingress eller motsvarande".
+**Ingen ingress controller** — under demo använder vi `kubectl port-forward` för frontend (3000) och Gateway (8080). Motiveras i K8s-ADR (reservpott) som "produktionssystem hade använt nginx-ingress eller motsvarande".
 
 ---
 
@@ -696,6 +718,6 @@ Följande är medvetet bortvalt och dokumenteras i README som "future work":
 - mTLS mellan tjänster
 - Outbox-pattern för `message-published` (bara för `user.registered`)
 - CDC-baserad outbox-publisher (polling används istället)
-- Rate limiting i BFF
+- Rate limiting i Gateway (Spring Cloud Gateway har en `RequestRateLimiter`-filter — vi använder den inte i v1)
 - Admin-UI för team/channel-skapande (seed-data istället)
 - Notification Service (push-notiser, email)
