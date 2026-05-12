@@ -1,6 +1,42 @@
 # Plan 05: Message Service
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Detta är den största servicen — räkna med två arbetsdagar.
+>
+> **Revision 2026-05-12 — OAuth2-pivot:** Task 9 (JwtAuthenticationFilter + SecurityConfig) ska ersättas med Spring Resource Server-konfiguration. Konkret:
+>
+> - Ersätt `auth-starter`-dependency (finns inte längre) med `spring-boot-starter-oauth2-resource-server`.
+> - Ta bort `security/JwtAuthenticationFilter.java` och `config/SecurityConfig.java`'s handskrivna `JwtAuthenticationFilter`.
+> - I `application.yml`, lägg till:
+>
+>   ```yaml
+>   spring:
+>     security:
+>       oauth2:
+>         resourceserver:
+>           jwt:
+>             jwk-set-uri: ${AUTH_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+>             issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
+>   ```
+>
+> - I `SecurityConfig.java`, använd:
+>
+>   ```java
+>   @Bean
+>   public SecurityFilterChain chain(HttpSecurity http) throws Exception {
+>       http
+>           .csrf(csrf -> csrf.disable())
+>           .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+>           .authorizeHttpRequests(a -> a
+>               .requestMatchers("/actuator/**").permitAll()
+>               .requestMatchers(HttpMethod.POST, "/messages").hasAnyAuthority("SCOPE_profile", "SCOPE_bot:write")
+>               .anyRequest().authenticated())
+>           .oauth2ResourceServer(rs -> rs.jwt(Customizer.withDefaults()));
+>       return http.build();
+>   }
+>   ```
+>
+> - JwtClaims-extraktion: använd `Authentication.getPrincipal()` som castar till `Jwt`. Läs `team_id`-claim via `jwt.getClaimAsString("team_id")`. För service-token: `jwt.getClaimAsStringList("scope")` innehåller "bot:write".
+> - Task 11 (as_user_id-säkerhetscheck): logik oförändrad men implementationen läser `as_user_id` från body och scope `bot:write` från Jwt-principalen istället för `JwtClaims.isService()`.
 
 **Goal:** Implementera Message Service: `channels` + `messages`-tabeller (med trådar via `parent_message_id` och JSONB-mentions), POST/GET REST-endpoints, gRPC-klient mot User Service för mention-resolution, RabbitMQ-publisher för `message-published`-events. Vid plan-slut kan POST /messages skapa ett meddelande, resolva mentions, lagra det med korrekt mentions-array, och publicera ett event som senare konsumeras av Bot Service.
 

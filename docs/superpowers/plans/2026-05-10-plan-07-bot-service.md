@@ -2,7 +2,49 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 >
-> **VIKTIG PRE-STEP:** Innan denna plan körs, läs `~/IdeaProjects/dev-mentor/README.md` och inspektera dess struktur. Bot Service ska INTEGRERA Nordic Dev Mentor som dependency, inte modifiera dess kärnlogik. Hur den integreras (Maven-modul, Git submodule, eller kopia) avgörs av Nordic Dev Mentors aktuella publishing-status. Plan-instruktionerna nedan antar att vi kan dra in den som en lokal Maven-dependency via `mvn install` av dev-mentor-repot.
+> **VIKTIG PRE-STEP:** Innan denna plan körs, läs `~/IdeaProjects/dev-mentor/README.md` och inspektera dess struktur. Bot Service ska INTEGRERA Nordic Dev Mentor som dependency, inte modifiera dess kärnlogik.
+>
+> **Revision 2026-05-12 — OAuth2-pivot:** Hela auth-mekaniken pivotas. Konkret ändringar:
+>
+> - **Inget pre-issued service-JWT.** Ersätter `GenerateServiceJwt` (Task 4) och `ServiceTokenProvider` (Task 5) med Spring Security OAuth2 Client + **Client Credentials grant**.
+> - **Dependency:** ersätt referens till `auth-starter` (finns inte längre) med `spring-boot-starter-oauth2-client`.
+> - **application.yml** lägg till:
+>
+>   ```yaml
+>   spring:
+>     security:
+>       oauth2:
+>         client:
+>           registration:
+>             auth-service:
+>               provider: auth-service
+>               client-id: bot-service
+>               client-secret: ${BOT_CLIENT_SECRET}
+>               authorization-grant-type: client_credentials
+>               scope: bot:write
+>           provider:
+>             auth-service:
+>               issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
+>   ```
+>
+> - **MessagePoster** (Task 10) använder `WebClient` (eller `RestClient`) med `ServletOAuth2AuthorizedClientExchangeFilterFunction` som hanterar token-fetching och caching automatiskt:
+>
+>   ```java
+>   @Bean
+>   public WebClient messageServiceWebClient(OAuth2AuthorizedClientManager manager) {
+>       ServletOAuth2AuthorizedClientExchangeFilterFunction oauth2 =
+>               new ServletOAuth2AuthorizedClientExchangeFilterFunction(manager);
+>       oauth2.setDefaultClientRegistrationId("auth-service");
+>       return WebClient.builder()
+>               .baseUrl(messageServiceUrl)
+>               .apply(oauth2.oauth2Configuration())
+>               .build();
+>   }
+>   ```
+>
+> - Spring sköter resten: hämtar access-token från Auth Server vid första anrop, cachar i `OAuth2AuthorizedClientService`, refreshar när den expirerar.
+> - **Task 1 om Nordic Dev Mentor-integration är oförändrad** — den handlar om dev-mentor som kodbas, inte om auth.
+> - **Task 11 (Integration test) ska mocka Auth Server:s /oauth2/token-endpoint** via WireMock istället för att mocka pre-issued JWT.
 
 **Goal:** Implementera Bot Service som konsumerar `message-published` från RabbitMQ, filtrerar mentions med `is_system=true`, slår upp avsändare via gRPC, anropar Nordic Dev Mentor för att generera bot-svar, postar svar via REST mot Message Service med service-JWT. Vid plan-slut: skicka ett meddelande med @-mention i lokalt running system → bot-svar dyker upp i samma tråd ~5 sekunder senare.
 
@@ -476,7 +518,7 @@ docker compose -f docker-compose.dev.yml up -d
 mvn -pl services/auth-service spring-boot:run &
 mvn -pl services/user-service spring-boot:run &
 mvn -pl services/message-service spring-boot:run &
-mvn -pl services/bff spring-boot:run &
+mvn -pl services/gateway spring-boot:run &
 mvn -pl services/bot-service spring-boot:run &
 sleep 30
 

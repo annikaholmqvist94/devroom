@@ -1,6 +1,16 @@
 # Plan 10: Kubernetes (Minikube för VG)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
+>
+> **Revision 2026-05-12 — OAuth2-pivot:** Manifestet ändras:
+>
+> - **Inget `jwt-signing-key`-Secret** — privat nyckel genereras in-memory i Auth Service-podden, behöver inte mountas.
+> - **Nya Secrets:** `oauth-client-secrets` med `gateway-client-secret` och `bot-service-client-secret` (BCrypt-värdena lagras i Auth Service Flyway-seed; plaintext-värdena används av Gateway och Bot Service via env-var).
+> - **Service-namn ändrat:** `services/bff/` → `services/gateway/`, `bff.yaml` → `gateway.yaml`, `devroom/bff` → `devroom/gateway`. Sed-substitutionen är redan gjord i denna fil för path-referenser.
+> - **K8s service-spec för Gateway** ska inkludera env-var `GATEWAY_CLIENT_SECRET` från Secret, och `AUTH_SERVICE_ISSUER` ska peka på intern DNS `http://auth-service:8081`.
+> - **Bot Service-spec** behöver `BOT_CLIENT_SECRET` env-var från Secret (inte längre `BOT_SERVICE_JWT_PATH`). `service-jwt-path`-mountning kan tas bort.
+> - **Spring Cloud BOM-installation** krävs i parent POM (Task 1 av Plan 06). Inte K8s-relaterat men måste vara klart innan gateway-image byggs.
+> - **Port-forward-stegen är oförändrade** — Gateway exponerar fortfarande på 8080 (samma port som BFF hade), bara namnet på Service har ändrats.
 
 **Goal:** Containerisera alla 5 backend-services + frontend, deploya på Minikube. Tjänster kommunicerar via interna DNS-namn, ConfigMaps/Secrets för config + nycklar. Demon körs via `kubectl port-forward` (ingen ingress controller).
 
@@ -21,7 +31,7 @@ devroom/
 ├── services/auth-service/Dockerfile
 ├── services/user-service/Dockerfile
 ├── services/message-service/Dockerfile
-├── services/bff/Dockerfile
+├── services/gateway/Dockerfile
 ├── services/bot-service/Dockerfile
 ├── frontend/Dockerfile
 ├── docker-compose.yml                   # uppdateras med service-build-config
@@ -41,7 +51,7 @@ devroom/
     ├── auth-service.yaml
     ├── user-service.yaml
     ├── message-service.yaml
-    ├── bff.yaml
+    ├── gateway.yaml
     ├── bot-service.yaml
     ├── frontend.yaml
     └── deploy.sh                        # one-command deploy script
@@ -167,7 +177,7 @@ eval $(minikube docker-env) # peka Docker CLI mot Minikubes daemon
 docker build -f services/auth-service/Dockerfile -t devroom/auth-service:latest .
 docker build -f services/user-service/Dockerfile -t devroom/user-service:latest .
 docker build -f services/message-service/Dockerfile -t devroom/message-service:latest .
-docker build -f services/bff/Dockerfile -t devroom/bff:latest .
+docker build -f services/gateway/Dockerfile -t devroom/gateway:latest .
 docker build -f services/bot-service/Dockerfile -t devroom/bot-service:latest .
 docker build -f frontend/Dockerfile -t devroom/frontend:latest .
 
@@ -477,9 +487,9 @@ spec:
 Liknande filer för:
 - `user-service.yaml` (port 8082 + grpc 9082, behöver public-key från ConfigMap)
 - `message-service.yaml` (port 8083, public-key + grpc-client mot user-service:9082)
-- `bff.yaml` (port 8080, public-key)
+- `gateway.yaml` (port 8080, public-key)
 - `bot-service.yaml` (mounta `bot-service-jwt`-Secret)
-- `frontend.yaml` (port 3000, NEXT_PUBLIC_BFF_URL=http://bff:8080)
+- `frontend.yaml` (port 3000, NEXT_PUBLIC_GATEWAY_URL=http://gateway:8080)
 
 Commit alla.
 
@@ -525,7 +535,7 @@ echo "==> Applying services"
 kubectl apply -f k8s/auth-service.yaml
 kubectl apply -f k8s/user-service.yaml
 kubectl apply -f k8s/message-service.yaml
-kubectl apply -f k8s/bff.yaml
+kubectl apply -f k8s/gateway.yaml
 kubectl apply -f k8s/bot-service.yaml
 kubectl apply -f k8s/frontend.yaml
 
@@ -535,7 +545,7 @@ kubectl wait -n devroom --for=condition=available deployment --all --timeout=180
 echo "==> Deploy complete. Run 'minikube dashboard' for visual."
 echo "==> Port-forward for demo:"
 echo "    kubectl port-forward -n devroom svc/frontend 3000:3000 &"
-echo "    kubectl port-forward -n devroom svc/bff 8080:8080 &"
+echo "    kubectl port-forward -n devroom svc/gateway 8080:8080 &"
 echo "    kubectl port-forward -n devroom svc/rabbitmq 15672:15672 &"
 ```
 
@@ -559,7 +569,7 @@ kubectl get pods -n devroom
 
 # Port-forward
 kubectl port-forward -n devroom svc/frontend 3000:3000 &
-kubectl port-forward -n devroom svc/bff 8080:8080 &
+kubectl port-forward -n devroom svc/gateway 8080:8080 &
 
 # Öppna http://localhost:3000 → testa hela flödet (signup → mention → bot-svar)
 ```
@@ -630,7 +640,7 @@ docker compose up --build
 minikube start --driver=docker --memory=6144 --cpus=4
 bash k8s/deploy.sh
 kubectl port-forward -n devroom svc/frontend 3000:3000 &
-kubectl port-forward -n devroom svc/bff 8080:8080 &
+kubectl port-forward -n devroom svc/gateway 8080:8080 &
 # Öppna http://localhost:3000
 ```
 
@@ -679,7 +689,7 @@ minikube start --driver=docker --memory=6144 --cpus=4
 bash k8s/deploy.sh
 minikube dashboard &
 kubectl port-forward -n devroom svc/frontend 3000:3000 &
-kubectl port-forward -n devroom svc/bff 8080:8080 &
+kubectl port-forward -n devroom svc/gateway 8080:8080 &
 kubectl port-forward -n devroom svc/rabbitmq 15672:15672 &
 ```
 
