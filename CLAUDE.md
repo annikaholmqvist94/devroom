@@ -1,15 +1,14 @@
 # Devroom — projektkontext för Claude
 
-> Den här filen laddas automatiskt av Claude Code vid varje session i detta repo. Den är **inte committad** (matchar `CLAUDE.md` i `.gitignore`) — håll den lokal och uppdatera den löpande.
+> Den här filen laddas automatiskt av Claude Code vid varje session i detta repo. Håll den uppdaterad löpande.
 
 ## Projektets natur
 
-- **Laboration 2** i backend-kurs ("microservices och distribuerade system")
-- **3,5 veckor heltid** (~140h budget, ~25h marginal kvar efter OAuth2-pivoten)
-- **VG-nivå** kräver Kubernetes via Minikube
-- **Portfolio-projekt** — ADR-kvalitet, integrationstester, "docker compose up" räcker, README med diagram + GIF
-- **Examination:** kodgranskning + muntlig redovisning + live-demo
-- **Återanvänder Nordic Dev Mentor** (laboration 1) som dependency för Bot Service. Lokalt på `~/IdeaProjects/dev-mentor`.
+- **Distribuerat chat-system** med @-mentionable AI-mentorer inom mikroservicearkitektur
+- **Tidsbudget:** ~140h development time, ~25h marginal kvar efter OAuth2-pivoten
+- **Kvalitetsmål:** ADR:er för viktiga arkitekturbeslut, integrationstester med Testcontainers, "docker compose up" som lokal snabbstart, README med arkitekturdiagram och demo-flow
+- **Deployment-mål:** Kubernetes via Minikube (utöver lokal docker-compose)
+- **Återanvänder Nordic Dev Mentor** som dependency för Bot Service. Lokalt på `~/IdeaProjects/dev-mentor`.
 
 ## Arkitektur (efter pivot 2026-05-12)
 

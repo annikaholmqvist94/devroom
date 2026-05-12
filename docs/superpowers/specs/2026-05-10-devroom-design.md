@@ -24,9 +24,9 @@ Devroom är en team-chattapplikation för 2-10 utvecklare med fyra @-mentionable
 
 **Tre samtidiga målbilder:**
 
-1. **Laboration 2 i backend-kurs** ("microservices och distribuerade system"). Examineras genom kodgranskning, muntlig redovisning, live-demo. VG kräver Kubernetes-deploy utöver basbetygskraven.
-2. **Portfolio-projekt.** Kvalitetsmarkörer (ADR:er, integrationstester, "docker compose up" räcker, README med diagram + demo-GIF) väger lika tungt som funktionalitet.
-3. **Återanvändning av tidigare laboration.** Bot Service wrappar den befintliga "Nordic Dev Mentor"-tjänsten utan att modifiera dess kärnlogik. Nordic Dev Mentor förblir egen kodbas på `~/IdeaProjects/dev-mentor`.
+1. **Distribuerat mikroservice-system.** Tema: tjänsteisolering, intern gRPC, extern REST via Gateway, händelsedriven arkitektur, JWT-baserad autentisering, containerisering.
+2. **Kvalitetsmarkörer som väger lika tungt som funktionalitet:** ADR:er för viktiga designval, integrationstester med Testcontainers, "docker compose up" som lokal snabbstart, README med arkitekturdiagram och demo-flow.
+3. **Återanvändning av tidigare arbete.** Bot Service wrappar den befintliga "Nordic Dev Mentor"-tjänsten utan att modifiera dess kärnlogik. Nordic Dev Mentor förblir egen kodbas på `~/IdeaProjects/dev-mentor`.
 
 ---
 
@@ -514,7 +514,7 @@ Varje service har sin egen `Dockerfile` (multi-stage: build + runtime). Frontend
 
 **Slutet av vecka 1:** signup via curl, JWT-validering i en dummy-tjänst, gRPC-anrop mot User Service med grpcurl. Två tjänster fungerar fristående. 4 av 5 ADR:er skrivna.
 
-### 8.2 Vecka 2: MQ + Message + Gateway + Bot (G-nivå klar) (40h)
+### 8.2 Vecka 2: MQ + Message + Gateway + Bot (basflöde klart) (40h)
 
 | Dag | Arbete |
 |---|---|
@@ -526,7 +526,7 @@ Varje service har sin egen `Dockerfile` (multi-stage: build + runtime). Frontend
 
 **Slutet av vecka 2:** hela G-flödet fungerar end-to-end via curl. Mention triggar bot-svar. Alla 5 ADR:er skrivna.
 
-### 8.3 Vecka 3: Frontend + integrationstester + K8s (VG-nivå klar) (40h)
+### 8.3 Vecka 3: Frontend + integrationstester + Kubernetes-deploy (40h)
 
 | Dag | Arbete |
 |---|---|
@@ -536,7 +536,7 @@ Varje service har sin egen `Dockerfile` (multi-stage: build + runtime). Frontend
 | 14 | Kubernetes-manifests: Deployments + Services + Secrets + ConfigMaps. Minikube-deploy. Verifiera intern DNS. |
 | 15 | K8s-finputs: liveness/readiness probes, resource limits, port-forwards för demo, åtgärda alla "fungerar i compose men inte i k8s"-problem. |
 
-**Slutet av vecka 3:** G + VG klart. Hela systemet kör på Minikube.
+**Slutet av vecka 3:** hela systemet kör både via docker-compose lokalt och på Minikube.
 
 ### 8.4 Halvvecka 4: Polish (16-22h)
 
@@ -544,7 +544,7 @@ Varje service har sin egen `Dockerfile` (multi-stage: build + runtime). Frontend
 |---|---|
 | 16 | Översyn och putsning av befintliga ADR:er (uppdatera om något ändrats under bygget). Reserve: skriv ev. ADR-0006 till ADR-0009 om tid finns (se sektion 13). |
 | 17 | README med arkitekturdiagram (Mermaid), inspela demo-GIF (signup → mention → bot-svar), snabbstart-guide. |
-| 18 (halv) | Buffert: buggfix, log-städning, kommentera kniviga delar, öva muntlig redovisning. |
+| 18 (halv) | Buffert: buggfix, log-städning, kommentera kniviga delar, finputs på demo-flowet. |
 
 ---
 
@@ -613,7 +613,7 @@ Frontend har **ingen** auth-kod, ingen JWT-hantering, ingen localStorage. Browse
 
 ---
 
-## 11. Kubernetes-strategi (VG)
+## 11. Kubernetes-strategi
 
 **Lokalt cluster:** Minikube med Docker driver.
 

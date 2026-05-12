@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-05-12 (pivot från initial design 2026-05-10, två efterföljande revisioner samma dag)
-**Context:** Devroom — Laboration 2 (microservices) + portfolio-projekt
+**Context:** Devroom — distribuerat chat-system med AI-mentorer på mikroservicearkitektur
 
 ## Sammanhang
 
@@ -40,7 +40,7 @@ Vi använder Spring Securitys officiella OAuth2-stack genomgående, med Spring C
 
 En delad Maven-modul `auth-starter` med egen `JwtIssuer` (JJWT-baserad), `JwtValidator`, `JwtAuthenticationFilter`. Public key distribueras till alla services som ConfigMap-fil. Service-token för Bot pre-issued statiskt med 1 års exp.
 
-**Varför avvisad:** Spring Security ger samma funktionalitet med 4 rader YAML-config per service istället för ~150 rader handskriven kod över 4-5 klasser. Vår variant skulle dessutom missa allt edge-case-arbete (clock-skew, JWK rotation, expired token-hantering) som Spring redan löst. Inget portfolio-värde i att rolla eget för en standardproblematik som har en industri-validerad lösning.
+**Varför avvisad:** Spring Security ger samma funktionalitet med 4 rader YAML-config per service istället för ~150 rader handskriven kod över 4-5 klasser. Vår variant skulle dessutom missa allt edge-case-arbete (clock-skew, JWK rotation, expired token-hantering) som Spring redan löst. Inget värde i att rolla eget för en standardproblematik som har en industri-validerad lösning.
 
 ### Alt B: Keycloak som extern Identity Provider
 
@@ -82,7 +82,7 @@ In-memory generation eliminerar allt detta. Trade-off: tokens blir invalida vid 
 
 En klassisk Spring Web-applikation med controllers per upstream (AuthProxyController, MessagesProxyController, etc) som anropar nedströms-tjänster via `RestClient`. Spring Security hanterar OAuth2-flödet och session.
 
-**Varför avvisad till förmån för Spring Cloud Gateway:** Spring Web BFF kräver ~150 rader handskriven proxy-kod över 5+ controllers. Spring Cloud Gateway uppnår samma sak med ~50 rader YAML och dess `TokenRelay`-filter. Reactive stack ger marginellt högre throughput men det är inte den primära vinsten — det är **deklarativ routing** vs imperativ. Reactive learning-investment (~6h) kompenseras av tidsbesparing i kod + bättre portfolio-impact (Token Relay-pattern är industri-buzz).
+**Varför avvisad till förmån för Spring Cloud Gateway:** Spring Web BFF kräver ~150 rader handskriven proxy-kod över 5+ controllers. Spring Cloud Gateway uppnår samma sak med ~50 rader YAML och dess `TokenRelay`-filter. Reactive stack ger marginellt högre throughput men det är inte den primära vinsten — det är **deklarativ routing** vs imperativ. Reactive learning-investment (~6h) kompenseras av tidsbesparing i kod och en mer hållbar long-term-arkitektur.
 
 ### Alt H: Kong API Gateway
 
@@ -106,10 +106,10 @@ Vi noterar Kong som "production migration path" om Devroom någonsin skulle beh�
 - Inga PEM-filer någonstans i systemet — privat nyckel finns bara i Auth Server-RAM. Eliminerar hela "key-file-mounting"-problemområdet.
 - JWKS-distribution: rotera nyckel (eller restart Auth Service) → resource servers picks upp automatiskt vid nästa cache-refresh.
 - Cookie-baserad frontend-session är XSS-säker.
-- Bot Service service-auth via Client Credentials följer RFC 6749. Recruiters känner igen mönstret.
+- Bot Service service-auth via Client Credentials följer RFC 6749 — etablerat industri-mönster.
 - Refresh-tokens inkluderade by default — vi får dem "gratis" snarare än att markera som future work.
 - Möjlighet att senare migrera Auth Service till Keycloak utan att röra resource servers eller Gateway (samma OAuth2-protokoll mot båda).
-- **Reactive stack i Gateway** — pedagogiskt värdefullt + bevis på Spring-mognad i portfolio.
+- **Reactive stack i Gateway** — pedagogiskt värdefullt och demonstrerar Spring-ekosystemet bortom det grundläggande servlet-mönstret.
 
 **Negativa:**
 

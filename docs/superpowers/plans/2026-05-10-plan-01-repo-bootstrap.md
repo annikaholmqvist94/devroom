@@ -194,7 +194,7 @@ indent_size = 2
 ```markdown
 # Devroom
 
-Distributed chat with @-mentionable AI mentors. Laboration 2 (microservices).
+Distributed chat with @-mentionable AI mentors built on a microservice architecture.
 
 See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md).
 
@@ -1123,11 +1123,11 @@ git commit -m "ci: add GitHub Actions workflow for build + test"
 
 **Status:** Accepted
 **Date:** 2026-05-10
-**Context:** Devroom (Laboration 2 — microservices och distribuerade system)
+**Context:** Devroom — distribuerat chat-system med AI-mentorer på mikroservicearkitektur
 
 ## Context
 
-Devroom kunde implementeras som en enda Spring Boot-applikation. Kursens fokus är dock microservice-mönster, och projektet ska också fungera som portfolio. Vi behövde besluta hur systemet skulle delas upp.
+Devroom kunde implementeras som en enda Spring Boot-applikation. Vi vill dock demonstrera microservice-mönster och bygga en lärbar, professionellt strukturerad kodbas. Vi behövde besluta hur systemet skulle delas upp.
 
 ## Decision
 
@@ -1202,7 +1202,7 @@ JWT-bibliotek implementeras som delad Maven-modul (`auth-starter`) med `JwtIssue
 
 ## Considered alternatives
 
-**Alt A: BFF-only validering + nätverksisolering.** Avvisad — om någon tjänst råkar exponeras (bug, missad NetworkPolicy) kan vem som helst posta som vem som helst. För svagt för portfolio.
+**Alt A: BFF-only validering + nätverksisolering.** Avvisad — om någon tjänst råkar exponeras (bug, missad NetworkPolicy) kan vem som helst posta som vem som helst. För svag säkerhetsmodell för ett system som vill vara prod-realistiskt.
 
 **Alt B: Auth Service utfärdar service-tokens dynamiskt.** Avvisad — kräver login-cykel i Bot Service och refresh-logik (~6h extra). Marginell säkerhetsvinst.
 

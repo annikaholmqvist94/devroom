@@ -1,4 +1,4 @@
-# Plan 10: Kubernetes (Minikube för VG)
+# Plan 10: Kubernetes (Minikube)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 >
@@ -615,7 +615,7 @@ Commit.
 ```markdown
 # Devroom
 
-Distributed chat with @-mentionable AI mentors. Laboration 2 i microservices-kursen.
+Distributed chat with @-mentionable AI mentors built on a microservice architecture.
 
 [demo-gif här]
 
@@ -634,7 +634,7 @@ docker compose up --build
 # Öppna http://localhost:3000
 ```
 
-### På Minikube (VG)
+### På Minikube
 
 ```bash
 minikube start --driver=docker --memory=6144 --cpus=4
@@ -709,8 +709,8 @@ Total demo-tid bör vara <5 minuter. Öva tills den är smidig.
 
 **Devroom är komplett.** Vid godkänd verifikation:
 
-- G-betyg: alla microservice-krav uppfyllda
-- VG-betyg: hela systemet kör på Kubernetes
-- Portfolio: 5+ ADR:er, integrationstester, full README med diagram + GIF
+- Alla 5 microservices kör med korrekt OAuth2-flöde, gRPC-trafik, RabbitMQ-events
+- Hela systemet är deployat på Kubernetes via Minikube
+- 5+ ADR:er, integrationstester, README med arkitekturdiagram och demo-flow
 
-Sista steget: muntlig redovisning + kodgranskning. Lycka till.
+Lycka till med demon.

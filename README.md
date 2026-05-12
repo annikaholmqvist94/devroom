@@ -1,6 +1,6 @@
 # Devroom
 
-Distributed chat with @-mentionable AI mentors. Laboration 2 (microservices).
+Distributed chat with @-mentionable AI mentors built on a microservice architecture.
 
 See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md).
 
