@@ -14,7 +14,7 @@
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring-boot.version>4.0.3</spring-boot.version>
+        <spring-boot.version>4.0.6</spring-boot.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <grpc.version>1.81.0</grpc.version>
         <protobuf.version>4.34.1</protobuf.version>
