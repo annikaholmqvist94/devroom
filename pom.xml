@@ -21,7 +21,7 @@
     </properties>
 
     <modules>
-        <!-- Service modules added as they are built (Plan 02 onwards) -->
+        <module>services/auth-service</module>
     </modules>
 
     <dependencyManagement>
@@ -60,6 +60,11 @@
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>3.5.2</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring-boot.version}</version>
                 </plugin>
             </plugins>
         </pluginManagement>
