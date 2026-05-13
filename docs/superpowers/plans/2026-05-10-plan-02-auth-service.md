@@ -7,6 +7,8 @@
 > **Revision 2026-05-13 — Variant C (JSON signup):** `/signup` är JSON-API (`@RestController`), inte Thymeleaf-form. Next.js-frontenden renderar signup-vyn i React och POSTar JSON via Gateway. Spring Security default-login används vid `/login` (inget Thymeleaf-templating krävs). Konsekvens: Task 1 POM tar inte in `spring-boot-starter-thymeleaf`, Task 10 droppar `.loginPage()`, Task 13 ersätter Thymeleaf-form med JSON, `templates/signup.html` skapas inte. Outbox-pattern oförändrat.
 >
 > **Revision 2026-05-13 — Boot 4.x starter-rename:** `spring-boot-starter-oauth2-authorization-server` är deprecated → `spring-boot-starter-security-oauth2-authorization-server`. `spring-boot-starter-web` är deprecated → drar `spring-boot-starter-webmvc` transitivt via nya SAS-startern.
+>
+> **Revision 2026-05-13 — Variant F (InMemory client config):** OAuth2-klienter `gateway` och `bot-service` konfigureras via `spring.security.oauth2.authorizationserver.client.*` i `application.yml`. Boot auto-konfigurerar `InMemoryRegisteredClientRepository`. Authorization-state (pågående flöden) hålls också i RAM via default `InMemoryOAuth2AuthorizationService`. **Konsekvens:** Task 5 (V2 oauth2_registered_client) och Task 6 (V3 oauth2_authorization + consent) revert:as — JDBC-tabellerna behövs inte. Task 8 ersätts: ingen `OAuth2ClientSeeder`, ingen `JdbcRegisteredClientRepository`-bean. **Motivering:** klienterna är statisk config (ändras inte i runtime), persistens ger ingen vinst. Vid restart återskapas identiska klienter från yml. Denna approach är vad Boot 4-docsen visar som första exempel; JDBC är reserverat för dynamiska/multi-tenant scenarios. För demo + dev är detta enklare och mer Spring-idiomatic — pågående OAuth2-flöden överlever inte Auth Service-restart, vilket är acceptabelt för demon.
 
 **Goal:** Implementera Auth Service som en fullvärdig Spring Authorization Server med OAuth2 + OIDC. Två registrerade klienter (`gateway` för Authorization Code + PKCE, `bot-service` för Client Credentials). Custom `/signup`-endpoint som skapar user + skriver outbox-event atomärt. JWKS-endpoint auto-exponerad. RS256-signering med **in-memory generated RSA-keypair** (regenereras vid varje restart — acceptabelt för demo, future-work motiverat i ADR-0003).
 
@@ -28,11 +30,11 @@ services/auth-service/
 ├── src/main/java/com/devroom/auth/
 │   ├── AuthServiceApplication.java
 │   ├── config/
-│   │   ├── AuthorizationServerConfig.java     # SecurityFilterChain + ClientRepository + JWKSource
+│   │   ├── AuthorizationServerConfig.java     # SecurityFilterChain + JWKSource
 │   │   ├── DefaultSecurityConfig.java          # filter chain (Spring default login, ingen custom path)
 │   │   ├── TokenCustomizerConfig.java          # OAuth2TokenCustomizer för team_id-claim
 │   │   ├── KeyConfig.java                      # RSAKey-bean från in-memory genererad keypair
-│   │   └── OAuth2ClientSeeder.java             # @PostConstruct seedar gateway- + bot-klienter
+│   │   └── SecurityBeansConfig.java            # PasswordEncoder (BCrypt) för signup-flödet
 │   ├── domain/
 │   │   ├── DevroomUser.java                    # JPA-entitet, extra team_id-kolumn
 │   │   ├── DevroomUserRepository.java
@@ -50,12 +52,10 @@ services/auth-service/
 │       ├── SignupResponse.java                 # record(userId)
 │       └── ExceptionHandlers.java              # DuplicateEmailException → 409
 ├── src/main/resources/
-│   ├── application.yml
+│   ├── application.yml                             # OAuth2-klienter konfigureras här (Variant F)
 │   └── db/migration/
 │       ├── V1__create_users_and_authorities.sql
-│       ├── V2__create_oauth2_registered_clients.sql
-│       ├── V3__create_oauth2_authorization_tables.sql
-│       └── V4__create_outbox_events.sql
+│       └── V4__create_outbox_events.sql            # V2 + V3 revertade — InMemory client/auth-state
 └── src/test/java/com/devroom/auth/
     └── AuthServiceIntegrationTest.java         # Testcontainers + TestRestTemplate
 ```
@@ -352,38 +352,19 @@ OBS: `username` är typiskt email i Spring Security. `authority` är t.ex. "ROLE
 
 ---
 
-## Task 5: Flyway-migration: oauth2_registered_clients
+## Task 5: ~~Flyway V2 oauth2_registered_client~~ — REVERTAD (Variant F)
 
-Spring Authorization Server har sin egen `JdbcRegisteredClientRepository` med ett specifikt schema. Schemat är publicerat i Spring-källkoden (`oauth2-registered-client-schema.sql`).
+**Status 2026-05-13:** SUPERSEDED. Implementerad och committad i `1f2ba23`, sedan revertad efter att vi pivotade till Variant F (InMemory client config). InMemoryRegisteredClientRepository behöver ingen tabell — klienterna laddas från `application.yml` vid uppstart.
 
-- [ ] **Step 1: Hämta schemat från Spring Authorization Server**
-
-```bash
-curl -sL https://raw.githubusercontent.com/spring-projects/spring-authorization-server/main/oauth2-authorization-server/src/main/resources/org/springframework/security/oauth2/server/authorization/client/oauth2-registered-client-schema.sql \
-  > services/auth-service/src/main/resources/db/migration/V2__create_oauth2_registered_clients.sql
-```
-
-OBS: vid execution-tid verifiera att URL:en stämmer mot aktuell Spring Authorization Server-version. Annars hämta motsvarande från lokal Maven dependency.
-
-- [ ] **Step 2: Commit**
+Historiskt utförande (för referens):
+- SAS 7.0.5-schemat extraherades från lokal Maven-jar (inte GitHub main), `timestamp → timestamptz` per Postgres-anvisning.
+- Vid revert: `git rm` filen + commit.
 
 ---
 
-## Task 6: Flyway-migration: oauth2_authorization + oauth2_authorization_consent
+## Task 6: ~~Flyway V3 oauth2_authorization + consent~~ — REVERTAD (Variant F)
 
-Spring Authorization Server lagrar pågående auth-flöden i två extra tabeller.
-
-- [ ] **Step 1: Hämta schemat**
-
-```bash
-curl -sL https://raw.githubusercontent.com/spring-projects/spring-authorization-server/main/oauth2-authorization-server/src/main/resources/org/springframework/security/oauth2/server/authorization/oauth2-authorization-schema.sql \
-  >> services/auth-service/src/main/resources/db/migration/V3__create_oauth2_authorization_tables.sql
-
-curl -sL https://raw.githubusercontent.com/spring-projects/spring-authorization-server/main/oauth2-authorization-server/src/main/resources/org/springframework/security/oauth2/server/authorization/oauth2-authorization-consent-schema.sql \
-  >> services/auth-service/src/main/resources/db/migration/V3__create_oauth2_authorization_tables.sql
-```
-
-- [ ] **Step 2: Commit**
+**Status 2026-05-13:** SUPERSEDED. Implementerad och committad i `3f8e734`, sedan revertad. InMemoryOAuth2AuthorizationService (default när ingen JDBC-bean finns) håller pågående OAuth2-flöden i RAM. Trade-off för demo: flöden överlever inte Auth Service-restart, men eftersom flöden tar sekunder är detta acceptabelt.
 
 ---
 
@@ -407,74 +388,66 @@ Commit.
 
 ---
 
-## Task 8: Flyway-migration: seed OAuth2-klienter
+## Task 8: OAuth2-klienter via properties (Variant F)
 
-`gateway`-klient (Spring Cloud Gateway, ersätter den tidigare-planerade BFF) och `bot-service`-klient seedas vid uppstart. `client_secret` BCrypt-hashas. Plaintext-värden lagras i K8s Secrets (samma värde måste konfigureras både i Auth Server och i klienten).
+**Files:**
+- Modify: `services/auth-service/src/main/resources/application.yml`
 
-För demon använder vi statiska secrets — i prod skulle dessa roteras.
+`gateway` och `bot-service` konfigureras deklarativt under `spring.security.oauth2.authorizationserver.client.*`. Boot auto-konfigurerar `InMemoryRegisteredClientRepository` från dessa properties. Plaintext-secrets används för dev (`{noop}`-prefix), env-overridable. I prod ersätts med `{bcrypt}<hash>` lagrad i K8s Secret.
 
-- [ ] **Step 1: Generera secrets manuellt och spara i .env (eller K8s Secret)**
+- [ ] **Step 1: Lägg klient-config i application.yml**
 
-```bash
-GATEWAY_SECRET=$(openssl rand -hex 32)
-BOT_SECRET=$(openssl rand -hex 32)
-echo "GATEWAY_CLIENT_SECRET=$GATEWAY_SECRET" >> .env
-echo "BOT_CLIENT_SECRET=$BOT_SECRET" >> .env
-# Generera BCrypt-hashar för seed-migrationen:
-GATEWAY_HASH=$(htpasswd -bnBC 10 "" "$GATEWAY_SECRET" | tr -d ':\n' | sed 's/$2y/$2a/')
-BOT_HASH=$(htpasswd -bnBC 10 "" "$BOT_SECRET" | tr -d ':\n' | sed 's/$2y/$2a/')
-echo "GATEWAY_BCRYPT=$GATEWAY_HASH"
-echo "BOT_BCRYPT=$BOT_HASH"
+```yaml
+spring:
+  security:
+    oauth2:
+      authorizationserver:
+        client:
+          gateway:
+            registration:
+              client-id: gateway
+              client-secret: "{noop}${GATEWAY_CLIENT_SECRET:dev-gateway-secret-change-me}"
+              client-name: "Devroom Gateway"
+              client-authentication-methods: [client_secret_basic]
+              authorization-grant-types: [authorization_code, refresh_token]
+              redirect-uris: ["http://localhost:8080/login/oauth2/code/auth-service"]
+              post-logout-redirect-uris: ["http://localhost:3000/"]
+              scopes: [openid, profile]
+            require-authorization-consent: false
+            require-proof-key: true   # PKCE
+            token:
+              access-token-time-to-live: 1h
+              refresh-token-time-to-live: 24h
+              access-token-format: self-contained
+          bot:
+            registration:
+              client-id: bot-service
+              client-secret: "{noop}${BOT_CLIENT_SECRET:dev-bot-secret-change-me}"
+              client-name: "Devroom Bot Service"
+              client-authentication-methods: [client_secret_basic]
+              authorization-grant-types: [client_credentials]
+              scopes: ["bot:write"]
+            require-authorization-consent: false
+            token:
+              access-token-time-to-live: 1h
+              access-token-format: self-contained
 ```
 
-- [ ] **Step 2: Skriv V5-migrationen med hash-värdena**
+**Vad detta gör:** Vid Spring-uppstart läser Boots `OAuth2AuthorizationServerAutoConfiguration` properties och bygger två `RegisteredClient`-objekt som registreras i `InMemoryRegisteredClientRepository`. Inga andra config-klasser, ingen kod. Vid restart återskapas identiska klienter från yml — samma effekt som persistent storage utan komplexiteten.
 
-```sql
--- V5__seed_oauth2_clients.sql
-INSERT INTO oauth2_registered_client (
-    id, client_id, client_id_issued_at, client_secret, client_secret_expires_at,
-    client_name, client_authentication_methods, authorization_grant_types,
-    redirect_uris, post_logout_redirect_uris, scopes, client_settings, token_settings
-) VALUES (
-    'gateway-client-id-uuid-1',
-    'gateway',
-    NOW(),
-    '<GATEWAY_BCRYPT från Step 1>',
-    NULL,
-    'Spring Cloud Gateway',
-    'client_secret_basic',
-    'authorization_code,refresh_token',
-    'http://localhost:8080/login/oauth2/code/auth-service',
-    'http://localhost:3000/',
-    'openid,profile',
-    '{"@class":"java.util.Collections$UnmodifiableMap","settings.client.require-proof-key":true,"settings.client.require-authorization-consent":false}',
-    '{"@class":"java.util.Collections$UnmodifiableMap","settings.token.access-token-time-to-live":["java.time.Duration",3600.0],"settings.token.refresh-token-time-to-live":["java.time.Duration",86400.0],"settings.token.access-token-format":{"@class":"org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat","value":"self-contained"}}'
-);
+- [ ] **Step 2: SecurityBeansConfig — bara PasswordEncoder**
 
-INSERT INTO oauth2_registered_client (
-    id, client_id, client_id_issued_at, client_secret, client_secret_expires_at,
-    client_name, client_authentication_methods, authorization_grant_types,
-    redirect_uris, post_logout_redirect_uris, scopes, client_settings, token_settings
-) VALUES (
-    'bot-client-id-uuid-1',
-    'bot-service',
-    NOW(),
-    '<BOT_BCRYPT från Step 1>',
-    NULL,
-    'Bot Service',
-    'client_secret_basic',
-    'client_credentials',
-    '',
-    '',
-    'bot:write',
-    '{"@class":"java.util.Collections$UnmodifiableMap","settings.client.require-proof-key":false,"settings.client.require-authorization-consent":false}',
-    '{"@class":"java.util.Collections$UnmodifiableMap","settings.token.access-token-time-to-live":["java.time.Duration",3600.0],"settings.token.access-token-format":{"@class":"org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat","value":"self-contained"}}'
-);
+`PasswordEncoder`-bean behövs av signup-flödet (Task 13). Den enda config-bönan vi behöver utöver Boot auto-config.
+
+```java
+@Configuration
+public class SecurityBeansConfig {
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+}
 ```
-
-OBS: client_settings och token_settings är Jackson-serialiserade Maps — formatet är hårt och måste matcha exakt vad Spring Authorization Server förväntar. Vid execution-tid verifiera mot Spring-dokumentationen för aktuell version.
-
-**Alternativ approach:** seeda klienter programmatiskt i en `@PostConstruct` på en config-bean istället för Flyway. Mer pålitligt eftersom Spring själv kan serialisera settings. Detta är vad jag rekommenderar — Flyway-SQL för settings är fragil. Anpassa V5 till tom-fil och lägg seed-koden i en `OAuth2ClientSeeder`-komponent.
 
 - [ ] **Step 3: Commit**
 
@@ -529,10 +502,8 @@ public class AuthorizationServerConfig {
         return http.build();
     }
 
-    @Bean
-    public RegisteredClientRepository registeredClientRepository(JdbcTemplate jdbcTemplate) {
-        return new JdbcRegisteredClientRepository(jdbcTemplate);
-    }
+    // Variant F: ingen RegisteredClientRepository-bean — Boot auto-konfigurerar
+    // InMemoryRegisteredClientRepository från application.yml-properties (Task 8).
 }
 ```
 
