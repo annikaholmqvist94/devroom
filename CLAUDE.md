@@ -24,15 +24,22 @@
 ## Aktuell branch och status
 
 ```bash
-git branch    # plan-01-bootstrap (aktiv) + main
+git branch    # main + plan-01-finish (aktiv om PR #2 inte mergad)
 git log --oneline | head -5
 ```
 
-**Plan 01 Task 1-3 klara** (parent POM, auth-starter scaffold, JwtClaims). Auth-starter sedan borttaget vid pivot — modulen finns inte längre.
+**Plan 01 status (2026-05-13):**
 
-**Pivot 2026-05-12 klart** — 8 commits dokumenterar omarbetet. Spec, ADR-0003, Plan 02 och Plan 06 helt omskrivna. Plans 05/07/08/10 har "Revision 2026-05-12"-banners i topp som dokumenterar diffar mot original.
+- Task 1-3 klara — parent POM, auth-starter scaffold, JwtClaims (PR #1 mergad 2026-05-12).
+- Task 4-6 borttagna vid pivot — auth-starter ersatt av Spring Authorization Server + Resource Server starters.
+- Task 7-10 + 12 klara på branch `plan-01-finish` (PR #2 öppen): `proto/user.proto`, `docker-compose.yml` (single file med profiles-strategi), `.github/workflows/ci.yml`, `docs/adr/0001-microservice-decomposition.md`.
+- Task 11 skipped — täcks av ADR-0003-oauth2-stack.
 
-**Nästa steg:** Plan 02 Task 1 — scaffold auth-service Maven-modul.
+**Pivot 2026-05-12 klart** — 8 commits dokumenterar omarbetet. Spec, ADR-0003, Plan 02 och Plan 06 helt omskrivna. Plans 05/07/08/10 har "Revision 2026-05-12"-banners. Plan 01 har "Revision 2026-05-13 — single compose file"-banner.
+
+**Compose-strategi:** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]` så att `docker compose up` bara startar infra som default.
+
+**Nästa steg:** När PR #2 mergad — ny branch `plan-02-auth-service` från uppdaterad main, börja Plan 02 Task 1 (scaffold auth-service Maven-modul med Spring Authorization Server).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
