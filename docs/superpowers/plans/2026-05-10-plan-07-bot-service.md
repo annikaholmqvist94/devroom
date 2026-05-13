@@ -513,7 +513,7 @@ Commit.
 # Starta Nordic Dev Mentor som svart-låda i en separat container/process
 # (eller kör den från ~/IdeaProjects/dev-mentor)
 
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d
 # Starta auth, user, message, bff, bot
 mvn -pl services/auth-service spring-boot:run &
 mvn -pl services/user-service spring-boot:run &

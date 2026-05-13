@@ -538,7 +538,7 @@ git commit -m "test(auth-service): end-to-end outbox to RabbitMQ verification"
 
 Run:
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d
 sleep 15
 ```
 
@@ -591,7 +591,7 @@ Expected: JSON med användarens info.
 
 Ctrl+C i båda terminalerna och:
 ```bash
-docker compose -f docker-compose.dev.yml down
+docker compose down
 ```
 
 ---
