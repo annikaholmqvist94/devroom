@@ -800,7 +800,7 @@ Expected: BUILD SUCCESS, alla moduler bygger.
 
 Run:
 ```bash
-docker compose -f docker-compose.dev.yml up -d user-db
+docker compose up -d user-db
 sleep 5
 mvn -pl services/user-service spring-boot:run &
 APP_PID=$!
@@ -816,7 +816,7 @@ grpcurl -plaintext -import-path proto -proto user.proto \
   localhost:9082 devroom.user.v1.UserGrpcService/ResolveMentions
 
 kill $APP_PID
-docker compose -f docker-compose.dev.yml down
+docker compose down
 ```
 
 Expected: båda anropen returnerar JSON-data med mentor-info.

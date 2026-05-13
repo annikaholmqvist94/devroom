@@ -462,8 +462,7 @@ Maven multi-module monorepo:
 devroom/
 ├── README.md                          # arkitektur, demo-GIF, snabbstart
 ├── pom.xml                            # parent POM: Spring Boot 4 BOM, Java 21
-├── docker-compose.yml                 # full stack lokal
-├── docker-compose.dev.yml             # bara infra (postgres + rabbitmq)
+├── docker-compose.yml                 # infra + services (services via 'profiles: [full]')
 ├── .github/workflows/ci.yml           # bygg + test alla moduler
 │
 ├── docs/

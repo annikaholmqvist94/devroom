@@ -930,7 +930,7 @@ Commit.
 ## Task 14: Manuell smoke-test
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d
 mvn -pl services/auth-service spring-boot:run &
 mvn -pl services/user-service spring-boot:run &
 mvn -pl services/message-service spring-boot:run &

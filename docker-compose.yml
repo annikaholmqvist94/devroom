@@ -1,0 +1,74 @@
+services:
+  auth-db:
+    image: postgres:16-alpine
+    container_name: devroom-auth-db
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbuser -d authdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  user-db:
+    image: postgres:16-alpine
+    container_name: devroom-user-db
+    environment:
+      POSTGRES_DB: userdb
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpass
+    ports:
+      - "5433:5432"
+    volumes:
+      - user-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbuser -d userdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  message-db:
+    image: postgres:16-alpine
+    container_name: devroom-message-db
+    environment:
+      POSTGRES_DB: messagedb
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpass
+    ports:
+      - "5434:5432"
+    volumes:
+      - message-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbuser -d messagedb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: devroom-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: devroom
+      RABBITMQ_DEFAULT_PASS: devroom
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  auth-db-data:
+  user-db-data:
+  message-db-data:
+  rabbitmq-data:

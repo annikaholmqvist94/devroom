@@ -131,15 +131,16 @@ OBS: `next.config.ts` måste ha `output: 'standalone'`. Lägg till om det saknas
 
 ## Task 3: Uppdatera docker-compose.yml för full stack
 
-Inkludera nu alla services så `docker compose up` ger hela stacken lokalt utan K8s. Använd Dockerfiles ovan.
+> **Revision 2026-05-13 — single compose file:** Infra-services (auth-db, user-db, message-db, rabbitmq) finns redan i `docker-compose.yml` sedan Plan 01. Lägg till applikations-services direkt nedan med `profiles: [full]` — då startar `docker compose up` bara infra och `docker compose --profile full up` startar allt.
+
+Lägg till alla services så `docker compose --profile full up` ger hela stacken lokalt utan K8s. Använd Dockerfiles ovan.
 
 ```yaml
-# docker-compose.yml
-include:
-  - docker-compose.dev.yml
+# docker-compose.yml — appended below befintliga infra-services
 
 services:
   auth-service:
+    profiles: [full]
     build:
       context: .
       dockerfile: services/auth-service/Dockerfile
@@ -153,13 +154,11 @@ services:
       SPRING_DATASOURCE_USERNAME: dbuser
       SPRING_DATASOURCE_PASSWORD: dbpass
       SPRING_RABBITMQ_HOST: rabbitmq
-      AUTH_PRIVATE_KEY_PATH: file:/keys/private.pem
-    volumes:
-      - ./keys:/keys:ro
     ports:
       - "8081:8081"
 
-  # ... liknande för user-service, message-service, bff, bot-service, frontend
+  # ... liknande för user-service, message-service, gateway, bot-service, frontend
+  # — alla med 'profiles: [full]' så de inte startar med default 'docker compose up'
 ```
 
 Commit.

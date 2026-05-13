@@ -12,7 +12,7 @@
 
 **Goal (ursprungligt):** Sätt upp Maven multi-module monorepo, docker-compose med Postgres + RabbitMQ, delad `auth-starter`-modul med JWT-utility, gRPC `.proto`-fil, root CI.
 
-**Goal (efter pivot):** Sätt upp Maven multi-module monorepo (klart), docker-compose med Postgres + RabbitMQ, gRPC `.proto`-fil, root CI, ADR-0001. Vid plan-slut kan `mvn -B verify` och `docker compose -f docker-compose.dev.yml up -d` köras framgångsrikt på en clean checkout.
+**Goal (efter pivot):** Sätt upp Maven multi-module monorepo (klart), docker-compose med Postgres + RabbitMQ, gRPC `.proto`-fil, root CI, ADR-0001. Vid plan-slut kan `mvn -B verify` och `docker compose up -d` köras framgångsrikt på en clean checkout.
 
 **Architecture:** Maven multi-module med parent POM som låser Spring Boot 4 BOM och Java 21. `auth-starter` är ett delat library som varje service drar in. Tre separata Postgres-containrar i compose (matchar K8s-topologin senare). RabbitMQ med management-UI för debug.
 
@@ -32,8 +32,7 @@ devroom/
 ├── .gitignore
 ├── .editorconfig
 ├── README.md                            # bare-bones, expanderas i plan 10
-├── docker-compose.yml                   # full stack (services kommer senare)
-├── docker-compose.dev.yml               # bara infra (postgres + rabbitmq)
+├── docker-compose.yml                   # infra (services tillkommer med 'profiles: [full]')
 ├── infra/
 │   └── postgres-init/
 │       ├── auth-db-init.sql
@@ -211,8 +210,8 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md).
 ## Quick start
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d   # Postgres + RabbitMQ only
-mvn verify                                        # build + test all modules
+docker compose up -d   # Postgres + RabbitMQ (services tillkommer i Plan 02-07 via 'profiles: [full]')
+mvn -B verify          # build + test all modules
 ```
 
 Status: under utveckling. Full body README skrivs i plan 10.
@@ -907,13 +906,14 @@ git commit -m "feat(proto): add User gRPC contract with GetUser and ResolveMenti
 
 ## Task 8: Skapa docker-compose för lokal infrastruktur
 
+> **Revision 2026-05-13 — single compose file:** En `docker-compose.yml` istället för två filer (`docker-compose.dev.yml` + include-fil). När services tillkommer i Plan 02-07 markeras de med `profiles: [full]` så att default `docker compose up` bara startar infra. Step 1 (init-skripts) och Step 5 (include-fil) hoppas över. Step 2 skapar `docker-compose.yml` direkt.
+
 **Files:**
-- Create: `docker-compose.dev.yml`
-- Create: `infra/postgres-init/auth-db-init.sql`
-- Create: `infra/postgres-init/user-db-init.sql`
-- Create: `infra/postgres-init/message-db-init.sql`
+- Create: `docker-compose.yml`
 
 - [ ] **Step 1: Skapa init-skript för Postgres**
+
+> **OBSOLETE — single compose file revision.** Hoppa över hela detta steg. Postgres-imagen auto-initierar via `POSTGRES_DB`/`POSTGRES_USER`/`POSTGRES_PASSWORD` env-vars. Inga manuella init-skript behövs.
 
 ```sql
 -- infra/postgres-init/auth-db-init.sql
@@ -944,7 +944,7 @@ GRANT ALL ON SCHEMA public TO dbuser;
 
 OBS: Tre separata Postgres-containrar är enklare än multi-DB i en. Vi kör tre containrar nedan.
 
-- [ ] **Step 2: Skapa `docker-compose.dev.yml`**
+- [ ] **Step 2: Skapa `docker-compose.yml`**
 
 ```yaml
 services:
@@ -1033,9 +1033,9 @@ rm -rf infra/postgres-init/
 
 Run:
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d
 sleep 10
-docker compose -f docker-compose.dev.yml ps
+docker compose ps
 ```
 
 Expected: alla 4 containrar med status `healthy` (eller `running` om healthcheck inte körts än).
@@ -1048,26 +1048,17 @@ Expected: HTML-svar (RabbitMQ management UI).
 
 - [ ] **Step 4: Stäng ner**
 
-Run: `docker compose -f docker-compose.dev.yml down`
+Run: `docker compose down`
 Expected: containrar stoppade.
 
-- [ ] **Step 5: Skapa platshållar `docker-compose.yml`**
+- [ ] **Step 5: ~~Skapa platshållar `docker-compose.yml`~~**
 
-För full stack skapas detta successivt när services finns. Just nu pekar `docker-compose.yml` till `docker-compose.dev.yml`-konfig + en notering om att services kommer:
-
-```yaml
-# docker-compose.yml
-# Full stack compose. Services tilläggs i plan 2-7.
-# För bara infra: docker compose -f docker-compose.dev.yml up
-
-include:
-  - docker-compose.dev.yml
-```
+> **OBSOLETE — single compose file revision.** Skippas. Vi har bara en `docker-compose.yml`. När services tillkommer i Plan 02-07 markeras de med `profiles: [full]`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docker-compose.dev.yml docker-compose.yml
+git add docker-compose.yml
 git commit -m "feat(infra): add docker-compose for Postgres (3 instances) + RabbitMQ"
 ```
 
@@ -1262,14 +1253,14 @@ Expected: BUILD SUCCESS, 0 tester (auth-starter borttagen vid pivot; första rik
 
 Run:
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d
 sleep 15
-docker compose -f docker-compose.dev.yml ps
+docker compose ps
 docker exec devroom-auth-db psql -U dbuser -d authdb -c "SELECT version();"
 docker exec devroom-user-db psql -U dbuser -d userdb -c "SELECT version();"
 docker exec devroom-message-db psql -U dbuser -d messagedb -c "SELECT version();"
 curl -s -u devroom:devroom http://localhost:15672/api/overview | head
-docker compose -f docker-compose.dev.yml down
+docker compose down
 ```
 
 Expected: alla kommandon ger version-info eller JSON utan fel.
@@ -1283,7 +1274,7 @@ Expected: ~12 commits sedan initial commit, alla logiska enheter.
 
 Checklista (justerad efter pivot):
 - [ ] `mvn -B clean verify` passerar (0 tester än, men reactor bygger rent)
-- [ ] `docker compose -f docker-compose.dev.yml up -d` startar 4 healthy containrar (auth-db, user-db, message-db, rabbitmq)
+- [ ] `docker compose up -d` startar 4 healthy containrar (auth-db, user-db, message-db, rabbitmq)
 - [ ] `proto/user.proto` finns och är giltig protobuf
 - [ ] `.github/workflows/ci.yml` finns och kör `mvn -B verify`
 - [ ] ADR-0001 (microservice decomposition) skriven
