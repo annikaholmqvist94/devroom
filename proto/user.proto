@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package devroom.user.v1;
+
+option java_multiple_files = true;
+option java_package = "com.devroom.user.grpc";
+option java_outer_classname = "UserProto";
+
+service UserGrpcService {
+  rpc GetUser(GetUserRequest) returns (User);
+  rpc ResolveMentions(ResolveMentionsRequest) returns (ResolveMentionsResponse);
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message ResolveMentionsRequest {
+  string team_id = 1;
+  repeated string display_names = 2;
+}
+
+message ResolveMentionsResponse {
+  repeated User users = 1;
+}
+
+message User {
+  string user_id = 1;
+  string display_name = 2;
+  string team_id = 3;
+  bool is_system = 4;
+  string mentor_personality = 5;  // empty for non-system users
+}
