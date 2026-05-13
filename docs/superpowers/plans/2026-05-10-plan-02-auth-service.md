@@ -3,6 +3,10 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 >
 > **Revision 2026-05-12:** Pivot från handskriven JWT-issuer/validator till Spring Authorization Server (`spring-boot-starter-oauth2-authorization-server`). Se [ADR-0003](../../adr/0003-oauth2-stack.md) för motivering.
+>
+> **Revision 2026-05-13 — Variant C (JSON signup):** `/signup` är JSON-API (`@RestController`), inte Thymeleaf-form. Next.js-frontenden renderar signup-vyn i React och POSTar JSON via Gateway. Spring Security default-login används vid `/login` (inget Thymeleaf-templating krävs). Konsekvens: Task 1 POM tar inte in `spring-boot-starter-thymeleaf`, Task 10 droppar `.loginPage()`, Task 13 ersätter Thymeleaf-form med JSON, `templates/signup.html` skapas inte. Outbox-pattern oförändrat.
+>
+> **Revision 2026-05-13 — Boot 4.x starter-rename:** `spring-boot-starter-oauth2-authorization-server` är deprecated → `spring-boot-starter-security-oauth2-authorization-server`. `spring-boot-starter-web` är deprecated → drar `spring-boot-starter-webmvc` transitivt via nya SAS-startern.
 
 **Goal:** Implementera Auth Service som en fullvärdig Spring Authorization Server med OAuth2 + OIDC. Två registrerade klienter (`gateway` för Authorization Code + PKCE, `bot-service` för Client Credentials). Custom `/signup`-endpoint som skapar user + skriver outbox-event atomärt. JWKS-endpoint auto-exponerad. RS256-signering med **in-memory generated RSA-keypair** (regenereras vid varje restart — acceptabelt för demo, future-work motiverat i ADR-0003).
 
@@ -25,9 +29,10 @@ services/auth-service/
 │   ├── AuthServiceApplication.java
 │   ├── config/
 │   │   ├── AuthorizationServerConfig.java     # SecurityFilterChain + ClientRepository + JWKSource
-│   │   ├── DefaultSecurityConfig.java          # filter chain för UI (login form, signup)
+│   │   ├── DefaultSecurityConfig.java          # filter chain (Spring default login, ingen custom path)
 │   │   ├── TokenCustomizerConfig.java          # OAuth2TokenCustomizer för team_id-claim
-│   │   └── KeyConfig.java                      # RSAKey-bean from in-memory generated keypair
+│   │   ├── KeyConfig.java                      # RSAKey-bean från in-memory genererad keypair
+│   │   └── OAuth2ClientSeeder.java             # @PostConstruct seedar gateway- + bot-klienter
 │   ├── domain/
 │   │   ├── DevroomUser.java                    # JPA-entitet, extra team_id-kolumn
 │   │   ├── DevroomUserRepository.java
@@ -35,28 +40,27 @@ services/auth-service/
 │   │   └── OutboxRepository.java
 │   ├── application/
 │   │   ├── SignupService.java                  # @Transactional user + outbox
-│   │   ├── PasswordHasher.java                 # BCrypt wrapper
 │   │   └── DuplicateEmailException.java
 │   ├── infra/
 │   │   ├── OutboxPublisher.java                # @Scheduled, wires RabbitMQ in plan 04
 │   │   └── DevroomUserDetailsService.java      # implements UserDetailsService över DevroomUser
 │   └── web/
-│       ├── SignupController.java               # POST /signup
-│       ├── SignupRequest.java
-│       └── ExceptionHandlers.java
+│       ├── SignupController.java               # @RestController POST /signup (JSON)
+│       ├── SignupRequest.java                  # record(email, password)
+│       ├── SignupResponse.java                 # record(userId)
+│       └── ExceptionHandlers.java              # DuplicateEmailException → 409
 ├── src/main/resources/
 │   ├── application.yml
-│   ├── db/migration/
-│   │   ├── V1__create_users_and_authorities.sql
-│   │   ├── V2__create_oauth2_registered_clients.sql
-│   │   ├── V3__create_oauth2_authorization_tables.sql
-│   │   ├── V4__create_outbox_events.sql
-│   │   └── V5__seed_oauth2_clients.sql
-│   └── templates/
-│       └── signup.html                         # enkel form, för demon
+│   └── db/migration/
+│       ├── V1__create_users_and_authorities.sql
+│       ├── V2__create_oauth2_registered_clients.sql
+│       ├── V3__create_oauth2_authorization_tables.sql
+│       └── V4__create_outbox_events.sql
 └── src/test/java/com/devroom/auth/
-    └── AuthServiceIntegrationTest.java         # Testcontainers + WebTestClient
+    └── AuthServiceIntegrationTest.java         # Testcontainers + TestRestTemplate
 ```
+
+Borttaget jämfört med original-strukturen: `templates/signup.html` (Variant C: JSON-API), `application/PasswordHasher.java` (PasswordEncoder-bean räcker), `V5__seed_oauth2_clients.sql` (programmatisk seeding via `OAuth2ClientSeeder`).
 
 ---
 
@@ -84,20 +88,10 @@ services/auth-service/
     <name>Devroom Auth Service</name>
 
     <dependencies>
-        <!-- OAuth2 Authorization Server -->
+        <!-- Spring Authorization Server (drar -starter, -security, -webmvc transitivt i Boot 4.x) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-oauth2-authorization-server</artifactId>
-        </dependency>
-
-        <!-- Web + Thymeleaf för login-form + signup-form -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+            <artifactId>spring-boot-starter-security-oauth2-authorization-server</artifactId>
         </dependency>
 
         <!-- Persistens -->
@@ -546,7 +540,7 @@ Commit.
 
 ---
 
-## Task 10: DefaultSecurityConfig — för login-UI + signup-routes
+## Task 10: DefaultSecurityConfig — Spring default-login + permit /signup (JSON-API)
 
 ```java
 package com.devroom.auth.config;
@@ -554,6 +548,7 @@ package com.devroom.auth.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -565,15 +560,18 @@ public class DefaultSecurityConfig {
     public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/login", "/signup", "/css/**", "/actuator/**").permitAll()
+                .requestMatchers("/signup", "/actuator/**").permitAll()
                 .anyRequest().authenticated()
             )
-            .formLogin(form -> form.loginPage("/login"))
-            .logout(logout -> logout.logoutSuccessUrl("/login?logged-out"));
+            // Spring Security default-login används vid /login mid-OAuth2-flöde
+            .formLogin(Customizer.withDefaults())
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/signup"));
         return http.build();
     }
 }
 ```
+
+**Variant C-notering:** ingen `.loginPage("/login")` — Spring genererar default-login-form (vit sida, två fält, knapp). `/signup` är JSON-API och behöver CSRF-undantag eftersom det inte använder Spring Security:s session-CSRF-token.
 
 Commit.
 
@@ -799,19 +797,44 @@ public class SignupService {
 
 Plus en `PasswordEncoder`-bean (BCrypt) i `@Configuration`-klass.
 
-**SignupController.java:**
+**SignupRequest.java + SignupResponse.java (records):**
 
 ```java
 package com.devroom.auth.web;
 
-import com.devroom.auth.application.DuplicateEmailException;
-import com.devroom.auth.application.SignupService;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.validation.BindingResult;
-import org.springframework.web.bind.annotation.*;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
-@Controller
+public record SignupRequest(
+        @Email @NotBlank String email,
+        @NotBlank @Size(min = 8) String password
+) {}
+```
+
+```java
+package com.devroom.auth.web;
+
+import java.util.UUID;
+
+public record SignupResponse(UUID userId) {}
+```
+
+**SignupController.java (Variant C: @RestController JSON):**
+
+```java
+package com.devroom.auth.web;
+
+import com.devroom.auth.application.SignupService;
+import jakarta.validation.Valid;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/signup")
 public class SignupController {
 
     private final SignupService service;
@@ -820,44 +843,42 @@ public class SignupController {
         this.service = service;
     }
 
-    @GetMapping("/signup")
-    public String form() {
-        return "signup";
-    }
-
-    @PostMapping("/signup")
-    public String signup(@RequestParam String email, @RequestParam String password, Model model) {
-        try {
-            service.signup(email, password);
-            return "redirect:/login?signup=success";
-        } catch (DuplicateEmailException e) {
-            model.addAttribute("error", "Email already exists");
-            return "signup";
-        } catch (Exception e) {
-            model.addAttribute("error", "Signup failed");
-            return "signup";
-        }
+    @PostMapping
+    public ResponseEntity<SignupResponse> signup(@Valid @RequestBody SignupRequest req) throws Exception {
+        var result = service.signup(req.email(), req.password());
+        return ResponseEntity
+                .status(201)
+                .body(new SignupResponse(result.userId()));
     }
 }
 ```
 
-**signup.html (Thymeleaf):**
+**ExceptionHandlers.java — duplicate email → 409:**
 
-```html
-<!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head><title>Sign up</title></head>
-<body>
-<h1>Skapa konto</h1>
-<form method="post" action="/signup">
-    <p th:if="${error}" th:text="${error}" style="color:red"></p>
-    <p><input type="email" name="email" placeholder="email" required></p>
-    <p><input type="password" name="password" placeholder="password" required minlength="8"></p>
-    <p><button type="submit">Skapa</button></p>
-</form>
-</body>
-</html>
+```java
+package com.devroom.auth.web;
+
+import com.devroom.auth.application.DuplicateEmailException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.Map;
+
+@RestControllerAdvice
+public class ExceptionHandlers {
+
+    @ExceptionHandler(DuplicateEmailException.class)
+    public ResponseEntity<Map<String, String>> handleDuplicate(DuplicateEmailException e) {
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "email_already_exists", "email", e.getEmail()));
+    }
+}
 ```
+
+`DuplicateEmailException` behöver en `getEmail()`-getter — uppdatera entitetsklassen i Task 13:s applicationsdel.
 
 Commit.
 
