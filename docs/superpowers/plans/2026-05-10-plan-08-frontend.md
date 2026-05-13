@@ -3,6 +3,37 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 >
 > **Pre-step:** Inspektera `~/IdeaProjects/dev-mentor/frontend/` för att identifiera vilka filer/komponenter som ska kopieras (Tailwind-config, globala stilar, primitive-komponenter). Lista exakta filer innan kopiering.
+>
+> **Revision 2026-05-12 — OAuth2-pivot:** Frontend förändras fundamentalt. Konkret:
+>
+> - **Ta bort `lib/auth.ts` helt.** Ingen localStorage-hantering. Cookie auto-medskickas av browser.
+> - **Login är inte ett formulär.** Det är `<a href="/api/auth/login">Logga in</a>` som länkar till Gateway:s `/oauth2/authorization/auth-service`. Gateway hanterar resten av Authorization Code-flödet via redirect-kedjan.
+> - **Signup-page tar bort credentials-formuläret.** Istället `<a href="/signup">Skapa konto</a>` som öppnar Auth Service:s signup-form (proxas via Gateway-route).
+> - **`lib/api.ts` förenklas:** alla `fetch`-anrop använder `credentials: 'include'`. **Inga Authorization-headers någonsin.** Cookien räcker. Det räcker med:
+>
+>   ```ts
+>   const GATEWAY = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8080";
+>
+>   export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+>       const res = await fetch(`${GATEWAY}${path}`, {
+>           ...init,
+>           credentials: "include",
+>           headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
+>       });
+>       if (res.status === 401) {
+>           // session expirerad eller saknas — redirecta till login
+>           window.location.href = "/api/auth/login";
+>           throw new Error("Unauthorized");
+>       }
+>       if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+>       return res.json();
+>   }
+>   ```
+>
+> - **Auth-state-detection:** vid sidladdning, anropa `GET /api/me` (mot Gateway). Om 200 → user är inloggad, visa channel-listan. Om 401 → visa login-knapp.
+> - **All path-routing till protected routes (channels) sker via Next.js:** vid `useEffect` på protected pages, gör en `/api/me`-check. Om 401, redirecta till `/login`-sidan (som har login-knappen).
+> - **Logout:** `<a href="/api/auth/logout">Logga ut</a>` som länkar till Gateway:s `/logout`. Gateway rensar session och redirectar till frontend-startsidan.
+> - **CORS:** Gateway sätter Access-Control-Allow-Credentials: true för origin `http://localhost:3000`. Konfigurerat i Plan 06 application.yml.
 
 **Goal:** Implementera Next.js 16-frontend som klient mot BFF. Login + signup, kanal-listvy, kanalvy med polling 3s, posta meddelanden med @-mentions, expanderbar trådvy, visuell stil ärvd från Nordic Dev Mentor.
 
@@ -54,7 +85,7 @@ frontend/
 │   │   ├── polling.ts                  # usePolling-hook
 │   │   └── types.ts
 │   └── middleware.ts                   # redirect till /login om ingen JWT
-└── .env.local.example                  # NEXT_PUBLIC_BFF_URL=http://localhost:8080
+└── .env.local.example                  # NEXT_PUBLIC_GATEWAY_URL=http://localhost:8080
 ```
 
 ---
@@ -87,7 +118,7 @@ npm run lint
 - [ ] **Step 4: Skapa `.env.local`**
 
 ```
-NEXT_PUBLIC_BFF_URL=http://localhost:8080
+NEXT_PUBLIC_GATEWAY_URL=http://localhost:8080
 ```
 
 - [ ] **Step 5: Commit**
@@ -217,7 +248,7 @@ export function clearAuth() {
 ```ts
 import { getAuth, clearAuth } from "./auth";
 
-const BFF = process.env.NEXT_PUBLIC_BFF_URL ?? "http://localhost:8080";
+const BFF = process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8080";
 
 export async function api<T>(
   path: string,
@@ -718,7 +749,7 @@ docker compose -f docker-compose.dev.yml up -d
 mvn -pl services/auth-service spring-boot:run &
 mvn -pl services/user-service spring-boot:run &
 mvn -pl services/message-service spring-boot:run &
-mvn -pl services/bff spring-boot:run &
+mvn -pl services/gateway spring-boot:run &
 mvn -pl services/bot-service spring-boot:run &
 sleep 30
 

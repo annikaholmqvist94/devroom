@@ -261,7 +261,7 @@ import java.io.File;
 class DockerComposeE2ETest {
 
     static ComposeContainer compose = new ComposeContainer(new File("../../docker-compose.yml"))
-            .withExposedService("bff", 8080, Wait.forHttp("/actuator/health"))
+            .withExposedService("gateway", 8080, Wait.forHttp("/actuator/health"))
             .withExposedService("auth-service", 8081, Wait.forHttp("/actuator/health"));
 
     @org.junit.jupiter.api.BeforeAll
@@ -272,7 +272,7 @@ class DockerComposeE2ETest {
 
     @Test
     void fullSignupAndMessageFlow() {
-        // BFF-host:port via compose.getServiceHost("bff", 8080)
+        // BFF-host:port via compose.getServiceHost("gateway", 8080)
         // ... HTTP-anrop end-to-end
     }
 }

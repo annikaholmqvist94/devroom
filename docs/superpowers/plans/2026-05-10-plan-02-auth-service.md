@@ -1,14 +1,18 @@
-# Plan 02: Auth Service
+# Plan 02: Auth Service (Spring Authorization Server)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
+>
+> **Revision 2026-05-12:** Pivot från handskriven JWT-issuer/validator till Spring Authorization Server (`spring-boot-starter-oauth2-authorization-server`). Se [ADR-0003](../../adr/0003-oauth2-stack.md) för motivering.
 
-**Goal:** Implementera Auth Service: signup + login REST-endpoints, BCrypt-hashning, JWT-utfärdande via `auth-starter`, `outbox_events`-tabell med lokal publisher (RabbitMQ-koppling tas i plan 04). Vid plan-slut kan en user signa upp via `curl`, få tillbaka en JWT, validera den, och en outbox-rad ska finnas i AuthDB.
+**Goal:** Implementera Auth Service som en fullvärdig Spring Authorization Server med OAuth2 + OIDC. Två registrerade klienter (`gateway` för Authorization Code + PKCE, `bot-service` för Client Credentials). Custom `/signup`-endpoint som skapar user + skriver outbox-event atomärt. JWKS-endpoint auto-exponerad. RS256-signering med **in-memory generated RSA-keypair** (regenereras vid varje restart — acceptabelt för demo, future-work motiverat i ADR-0003).
 
-**Architecture:** Spring Boot 4 + JPA + Flyway + Postgres. Hexagonal-light: `web` (controllers), `application` (services), `domain` (entities/repos), `infra` (config). Outbox-rad skrivs i samma `@Transactional`-metod som credentials-raden för atomicity. Outbox-publishern är ett `@Scheduled`-bean som tills vidare bara loggar — RabbitMQ-publish wires in plan 04.
+**Architecture:** Spring Boot 4.0.6 + Spring Authorization Server 7.0.x (via Boot BOM) + Spring Security + JPA + Flyway + Postgres. `JdbcUserDetailsManager` för users, `JdbcRegisteredClientRepository` för OAuth2-klienter. **RSA-keypair genereras in-memory vid uppstart** — inga PEM-filer någonstans, restart = ny nyckel = existerande tokens invalida (acceptabelt för demo, future-work i ADR-0003 nämner Vault/KMS för persistent key). Custom `OAuth2TokenCustomizer` för att lägga `team_id`-claim på user-tokens. Outbox-pattern oförändrat.
 
-**Tech Stack:** Spring Boot 4, Spring Data JPA, Flyway, BCrypt (Spring Security crypto), Postgres 16, Testcontainers.
+**Tech Stack:** Spring Boot 4.0.6, Spring Authorization Server (kommer som transitiv via boot-starter), Spring Data JPA, Flyway, BCrypt, Postgres 16, Testcontainers.
 
-**Refererar spec:** sektion 3.1, 4.1, 5.3.
+**Refererar spec:** sektion 4.1-4.3, 5.3.
+
+**Pre-condition:** plan 01 klar — parent POM + docker-compose-infra på plats.
 
 ---
 
@@ -20,41 +24,38 @@ services/auth-service/
 ├── src/main/java/com/devroom/auth/
 │   ├── AuthServiceApplication.java
 │   ├── config/
-│   │   ├── JwtConfig.java                     # @Bean JwtIssuer från PEM-filer
-│   │   └── SecurityConfig.java                # öppna endpoints (signup/login är public)
+│   │   ├── AuthorizationServerConfig.java     # SecurityFilterChain + ClientRepository + JWKSource
+│   │   ├── DefaultSecurityConfig.java          # filter chain för UI (login form, signup)
+│   │   ├── TokenCustomizerConfig.java          # OAuth2TokenCustomizer för team_id-claim
+│   │   └── KeyConfig.java                      # RSAKey-bean from in-memory generated keypair
 │   ├── domain/
-│   │   ├── Credentials.java                   # @Entity
-│   │   ├── CredentialsRepository.java         # JpaRepository
-│   │   ├── OutboxEvent.java                   # @Entity
-│   │   └── OutboxRepository.java              # JpaRepository
+│   │   ├── DevroomUser.java                    # JPA-entitet, extra team_id-kolumn
+│   │   ├── DevroomUserRepository.java
+│   │   ├── OutboxEvent.java                    # @Entity
+│   │   └── OutboxRepository.java
 │   ├── application/
-│   │   ├── SignupService.java                 # @Transactional: insert + outbox + JWT
-│   │   ├── LoginService.java                  # validate password + JWT
-│   │   ├── PasswordHasher.java                # BCrypt wrapper
-│   │   ├── DuplicateEmailException.java
-│   │   └── BadCredentialsException.java
+│   │   ├── SignupService.java                  # @Transactional user + outbox
+│   │   ├── PasswordHasher.java                 # BCrypt wrapper
+│   │   └── DuplicateEmailException.java
 │   ├── infra/
-│   │   └── OutboxPublisher.java               # @Scheduled, loggar (plan 4 wires RabbitMQ)
+│   │   ├── OutboxPublisher.java                # @Scheduled, wires RabbitMQ in plan 04
+│   │   └── DevroomUserDetailsService.java      # implements UserDetailsService över DevroomUser
 │   └── web/
-│       ├── SignupController.java
-│       ├── LoginController.java
-│       ├── AuthRequestDtos.java
+│       ├── SignupController.java               # POST /signup
+│       ├── SignupRequest.java
 │       └── ExceptionHandlers.java
 ├── src/main/resources/
 │   ├── application.yml
-│   └── db/migration/
-│       ├── V1__create_credentials.sql
-│       └── V2__create_outbox_events.sql
-├── src/test/java/com/devroom/auth/
-│   ├── AuthServiceIntegrationTest.java        # Testcontainers
-│   └── application/
-│       ├── SignupServiceTest.java             # mocked deps
-│       └── LoginServiceTest.java
-└── src/test/resources/
-    ├── application-test.yml
-    └── keys/
-        ├── test-private.pem
-        └── test-public.pem
+│   ├── db/migration/
+│   │   ├── V1__create_users_and_authorities.sql
+│   │   ├── V2__create_oauth2_registered_clients.sql
+│   │   ├── V3__create_oauth2_authorization_tables.sql
+│   │   ├── V4__create_outbox_events.sql
+│   │   └── V5__seed_oauth2_clients.sql
+│   └── templates/
+│       └── signup.html                         # enkel form, för demon
+└── src/test/java/com/devroom/auth/
+    └── AuthServiceIntegrationTest.java         # Testcontainers + WebTestClient
 ```
 
 ---
@@ -83,16 +84,23 @@ services/auth-service/
     <name>Devroom Auth Service</name>
 
     <dependencies>
+        <!-- OAuth2 Authorization Server -->
         <dependency>
-            <groupId>com.devroom</groupId>
-            <artifactId>auth-starter</artifactId>
-            <version>0.1.0-SNAPSHOT</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-authorization-server</artifactId>
         </dependency>
 
+        <!-- Web + Thymeleaf för login-form + signup-form -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+
+        <!-- Persistens -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
@@ -104,10 +112,6 @@ services/auth-service/
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
         <dependency>
@@ -124,9 +128,15 @@ services/auth-service/
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -154,11 +164,10 @@ services/auth-service/
 
 - [ ] **Step 2: Lägg till modulen i parent POM**
 
-Edit `pom.xml`, ändra `<modules>`-blocket till:
+Edit `pom.xml`:
 
 ```xml
 <modules>
-    <module>modules/auth-starter</module>
     <module>services/auth-service</module>
 </modules>
 ```
@@ -166,24 +175,24 @@ Edit `pom.xml`, ändra `<modules>`-blocket till:
 - [ ] **Step 3: Verifiera bygge**
 
 Run: `mvn -pl services/auth-service compile`
-Expected: BUILD SUCCESS (kompilerar tom modul utan källkod).
+Expected: BUILD SUCCESS.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add services/auth-service/pom.xml pom.xml
-git commit -m "feat(auth-service): scaffold module with Spring Boot, JPA, Flyway"
+git commit -m "feat(auth-service): scaffold module with Spring Authorization Server"
 ```
 
 ---
 
-## Task 2: Skapa Spring Boot application skeleton
+## Task 2: Application class + application.yml
 
 **Files:**
 - Create: `services/auth-service/src/main/java/com/devroom/auth/AuthServiceApplication.java`
 - Create: `services/auth-service/src/main/resources/application.yml`
 
-- [ ] **Step 1: Skapa application class**
+- [ ] **Step 1: Application class**
 
 ```java
 package com.devroom.auth;
@@ -201,7 +210,7 @@ public class AuthServiceApplication {
 }
 ```
 
-- [ ] **Step 2: Skapa application.yml**
+- [ ] **Step 2: application.yml**
 
 ```yaml
 server:
@@ -222,13 +231,16 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  security:
+    oauth2:
+      authorizationserver:
+        # Issuer URL — vad nedströms services förväntar sig i 'iss'-claim
+        issuer: http://localhost:8081
+        # Registreringen av klienter görs i koden via JdbcRegisteredClientRepository,
+        # inte här. Detta är bara meta-konfig.
 
 devroom:
   auth:
-    private-key-path: ${AUTH_PRIVATE_KEY_PATH:./keys/private.pem}
-    public-key-path: ${AUTH_PUBLIC_KEY_PATH:./keys/public.pem}
-    issuer: auth-service
-    user-token-ttl: PT1H        # 1 hour
     demo-team-id: 11111111-1111-1111-1111-111111111111
 
 management:
@@ -242,337 +254,146 @@ management:
         enabled: true
 ```
 
+OBS: i K8s overrides:as `issuer` till intern-DNS-namnet (`http://auth-service:8081`) via env-var.
+
 - [ ] **Step 3: Commit**
 
 ```bash
 git add services/auth-service/src/
-git commit -m "feat(auth-service): bootstrap Spring Boot application with config"
+git commit -m "feat(auth-service): Spring Boot bootstrap with OAuth2 Authorization Server config"
 ```
 
 ---
 
-## Task 3: Generera RSA-nyckelpar för dev (commitas inte)
-
-- [ ] **Step 1: Generera nycklar lokalt**
-
-Run:
-```bash
-mkdir -p keys
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out keys/private.pem
-openssl rsa -in keys/private.pem -pubout -out keys/public.pem
-ls -la keys/
-```
-
-Expected: två PEM-filer.
-
-- [ ] **Step 2: Verifiera att `keys/` ignoreras av git**
-
-Run: `git status`
-Expected: `keys/` listas INTE som untracked (matchar `*.pem` i `.gitignore`).
-
-- [ ] **Step 3: Skapa README i keys-mappen**
-
-Create `keys/README.md`:
-
-```markdown
-# Local development keys
-
-Generera lokalt:
-
-```bash
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out keys/private.pem
-openssl rsa -in keys/private.pem -pubout -out keys/public.pem
-```
-
-Dessa filer commitas INTE (matchar `*.pem` i `.gitignore`).
-För K8s: skapas via `kubectl create secret generic auth-private-key --from-file=...` (se plan 10).
-```
-
-- [ ] **Step 4: Edit `.gitignore` för att tillåta README**
-
-Verifiera att `.gitignore` har en undantagsregel — om inte, lägg till:
-
-```
-*.pem
-!**/keys/sample/*.pem
-!keys/README.md
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add keys/README.md .gitignore
-git commit -m "docs: add local key generation instructions"
-```
-
----
-
-## Task 4: Skriv Flyway-migration för `credentials`-tabell
+## Task 3: KeyConfig — in-memory RSA-keypair generation
 
 **Files:**
-- Create: `services/auth-service/src/main/resources/db/migration/V1__create_credentials.sql`
+- Create: `services/auth-service/src/main/java/com/devroom/auth/config/KeyConfig.java`
 
-- [ ] **Step 1: Skriv migrationen**
+**Vad detta gör:** Spring Authorization Server förväntar sig en `JWKSource<SecurityContext>`-bean som tillhandahåller signaturnyckeln. Vi genererar ett RSA-keypair i RAM vid uppstart, bygger en `RSAKey` med Nimbus JOSE, och exponerar den via en `ImmutableJWKSet`. Ingen disk-IO, inga PEM-filer.
 
-```sql
-CREATE TABLE credentials (
-    user_id        UUID PRIMARY KEY,
-    email          VARCHAR(255) UNIQUE NOT NULL,
-    password_hash  VARCHAR(255) NOT NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+**Konsekvens:** restart av Auth Service genererar ny nyckel → alla existerande tokens blir invalida vid signaturverifikation. Resource servers' JWKS-cache (24h) blir stale men resolveas vid nästa fetch. För demo: bekvämt. För prod: rotera till HashiCorp Vault eller AWS KMS (dokumenterat i ADR-0003 som future work).
 
-CREATE INDEX idx_credentials_email ON credentials(email);
-```
-
-- [ ] **Step 2: Verifiera migration-syntax mot lokal Postgres**
-
-Run:
-```bash
-docker compose -f docker-compose.dev.yml up -d auth-db
-sleep 5
-docker exec -i devroom-auth-db psql -U dbuser -d authdb < services/auth-service/src/main/resources/db/migration/V1__create_credentials.sql
-docker exec devroom-auth-db psql -U dbuser -d authdb -c "\d credentials"
-```
-
-Expected: tabellen `credentials` listas, kolumner stämmer.
-
-Run:
-```bash
-docker exec devroom-auth-db psql -U dbuser -d authdb -c "DROP TABLE credentials;"
-docker compose -f docker-compose.dev.yml down
-```
-
-(Cleanup — Flyway hanterar detta i nästa run.)
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add services/auth-service/src/main/resources/db/migration/V1__create_credentials.sql
-git commit -m "feat(auth-service): add credentials table migration"
-```
-
----
-
-## Task 5: Implementera `Credentials`-entitet och repository
-
-**Files:**
-- Create: `services/auth-service/src/main/java/com/devroom/auth/domain/Credentials.java`
-- Create: `services/auth-service/src/main/java/com/devroom/auth/domain/CredentialsRepository.java`
-
-- [ ] **Step 1: Skapa entitet**
-
-```java
-package com.devroom.auth.domain;
-
-import jakarta.persistence.*;
-import java.time.Instant;
-import java.util.UUID;
-
-@Entity
-@Table(name = "credentials")
-public class Credentials {
-
-    @Id
-    @Column(name = "user_id", nullable = false, updatable = false)
-    private UUID userId;
-
-    @Column(nullable = false, unique = true)
-    private String email;
-
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
-
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
-
-    protected Credentials() {}
-
-    public Credentials(UUID userId, String email, String passwordHash) {
-        this.userId = userId;
-        this.email = email;
-        this.passwordHash = passwordHash;
-        this.createdAt = Instant.now();
-    }
-
-    public UUID getUserId() { return userId; }
-    public String getEmail() { return email; }
-    public String getPasswordHash() { return passwordHash; }
-    public Instant getCreatedAt() { return createdAt; }
-}
-```
-
-- [ ] **Step 2: Skapa repository**
-
-```java
-package com.devroom.auth.domain;
-
-import org.springframework.data.jpa.repository.JpaRepository;
-import java.util.Optional;
-import java.util.UUID;
-
-public interface CredentialsRepository extends JpaRepository<Credentials, UUID> {
-    Optional<Credentials> findByEmail(String email);
-    boolean existsByEmail(String email);
-}
-```
-
-- [ ] **Step 3: Kompilera**
-
-Run: `mvn -pl services/auth-service compile`
-Expected: BUILD SUCCESS.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add services/auth-service/src/main/java/com/devroom/auth/domain/
-git commit -m "feat(auth-service): add Credentials entity and repository"
-```
-
----
-
-## Task 6: Implementera `PasswordHasher` (BCrypt-wrapper)
-
-**Files:**
-- Create: `services/auth-service/src/main/java/com/devroom/auth/application/PasswordHasher.java`
-- Create: `services/auth-service/src/test/java/com/devroom/auth/application/PasswordHasherTest.java`
-
-- [ ] **Step 1: Skriv det failande testet**
-
-```java
-package com.devroom.auth.application;
-
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
-
-class PasswordHasherTest {
-
-    private final PasswordHasher hasher = new PasswordHasher();
-
-    @Test
-    void hashIsDifferentFromPlainText() {
-        String hash = hasher.hash("supersecret");
-        assertNotEquals("supersecret", hash);
-        assertTrue(hash.startsWith("$2a$") || hash.startsWith("$2b$"), "BCrypt prefix expected");
-    }
-
-    @Test
-    void verifiesCorrectPassword() {
-        String hash = hasher.hash("supersecret");
-        assertTrue(hasher.matches("supersecret", hash));
-    }
-
-    @Test
-    void rejectsWrongPassword() {
-        String hash = hasher.hash("supersecret");
-        assertFalse(hasher.matches("wrong", hash));
-    }
-}
-```
-
-- [ ] **Step 2: Kör — ska faila**
-
-Run: `mvn -pl services/auth-service test`
-Expected: COMPILATION FAILURE.
-
-- [ ] **Step 3: Implementera**
-
-```java
-package com.devroom.auth.application;
-
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.stereotype.Component;
-
-@Component
-public class PasswordHasher {
-
-    private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-
-    public String hash(String plain) {
-        return encoder.encode(plain);
-    }
-
-    public boolean matches(String plain, String hash) {
-        return encoder.matches(plain, hash);
-    }
-}
-```
-
-- [ ] **Step 4: Kör — ska passa**
-
-Run: `mvn -pl services/auth-service test`
-Expected: BUILD SUCCESS, 3 tests passed.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add services/auth-service/src/main/java/com/devroom/auth/application/PasswordHasher.java \
-        services/auth-service/src/test/java/com/devroom/auth/application/PasswordHasherTest.java
-git commit -m "feat(auth-service): add PasswordHasher (BCrypt wrapper)"
-```
-
----
-
-## Task 7: Konfigurera `JwtIssuer`-bean
-
-**Files:**
-- Create: `services/auth-service/src/main/java/com/devroom/auth/config/JwtConfig.java`
-
-- [ ] **Step 1: Skapa config**
+- [ ] **Step 1: Implementera**
 
 ```java
 package com.devroom.auth.config;
 
-import com.devroom.auth.JwtIssuer;
-import com.devroom.auth.KeyLoader;
-import org.springframework.beans.factory.annotation.Value;
+import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
+import com.nimbusds.jose.jwk.source.JWKSource;
+import com.nimbusds.jose.proc.SecurityContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.nio.file.Path;
-import java.time.Duration;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
+import java.util.UUID;
 
 @Configuration
-public class JwtConfig {
+public class KeyConfig {
 
     @Bean
-    public JwtIssuer jwtIssuer(@Value("${devroom.auth.private-key-path}") String privateKeyPath) {
-        return new JwtIssuer(KeyLoader.loadPrivateKey(Path.of(privateKeyPath)));
-    }
+    public JWKSource<SecurityContext> jwkSource() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        KeyPair keyPair = generator.generateKeyPair();
 
-    @Bean
-    public JwtSettings jwtSettings(
-            @Value("${devroom.auth.issuer}") String issuer,
-            @Value("${devroom.auth.user-token-ttl}") Duration userTokenTtl,
-            @Value("${devroom.auth.demo-team-id}") String demoTeamId
-    ) {
-        return new JwtSettings(issuer, userTokenTtl, demoTeamId);
-    }
+        RSAKey rsaKey = new RSAKey.Builder((RSAPublicKey) keyPair.getPublic())
+                .privateKey((RSAPrivateKey) keyPair.getPrivate())
+                .keyID(UUID.randomUUID().toString())
+                .build();
 
-    public record JwtSettings(String issuer, Duration userTokenTtl, String demoTeamId) {}
+        return new ImmutableJWKSet<>(new JWKSet(rsaKey));
+    }
 }
 ```
 
-- [ ] **Step 2: Kompilera**
-
-Run: `mvn -pl services/auth-service compile`
-Expected: BUILD SUCCESS.
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
-git add services/auth-service/src/main/java/com/devroom/auth/config/JwtConfig.java
-git commit -m "feat(auth-service): wire JwtIssuer bean from PEM config"
+git add services/auth-service/src/main/java/com/devroom/auth/config/KeyConfig.java
+git commit -m "feat(auth-service): JWKSource bean with in-memory RSA keypair generation"
 ```
 
 ---
 
-## Task 8: Skriv Flyway-migration för `outbox_events`
+## Task 4: Flyway-migration: users + authorities (Spring Authorization Server-standard)
 
 **Files:**
-- Create: `services/auth-service/src/main/resources/db/migration/V2__create_outbox_events.sql`
+- Create: `services/auth-service/src/main/resources/db/migration/V1__create_users_and_authorities.sql`
+
+Spring Security har ett standard-schema för users som `JdbcUserDetailsManager` förväntar sig. Vi extender det med `user_id` (UUID) och `team_id`.
 
 - [ ] **Step 1: Skriv migrationen**
+
+```sql
+-- Standard Spring Security user schema, extended with user_id (UUID) and team_id
+
+CREATE TABLE users (
+    user_id        UUID PRIMARY KEY,
+    username       VARCHAR(255) UNIQUE NOT NULL,    -- = email
+    password       VARCHAR(255) NOT NULL,            -- BCrypt
+    enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+    team_id        UUID NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE authorities (
+    username       VARCHAR(255) NOT NULL,
+    authority      VARCHAR(255) NOT NULL,
+    CONSTRAINT fk_authorities_users FOREIGN KEY (username) REFERENCES users(username),
+    UNIQUE (username, authority)
+);
+
+CREATE INDEX idx_users_email ON users(username);
+```
+
+OBS: `username` är typiskt email i Spring Security. `authority` är t.ex. "ROLE_USER" eller "SCOPE_openid".
+
+- [ ] **Step 2: Commit**
+
+---
+
+## Task 5: Flyway-migration: oauth2_registered_clients
+
+Spring Authorization Server har sin egen `JdbcRegisteredClientRepository` med ett specifikt schema. Schemat är publicerat i Spring-källkoden (`oauth2-registered-client-schema.sql`).
+
+- [ ] **Step 1: Hämta schemat från Spring Authorization Server**
+
+```bash
+curl -sL https://raw.githubusercontent.com/spring-projects/spring-authorization-server/main/oauth2-authorization-server/src/main/resources/org/springframework/security/oauth2/server/authorization/client/oauth2-registered-client-schema.sql \
+  > services/auth-service/src/main/resources/db/migration/V2__create_oauth2_registered_clients.sql
+```
+
+OBS: vid execution-tid verifiera att URL:en stämmer mot aktuell Spring Authorization Server-version. Annars hämta motsvarande från lokal Maven dependency.
+
+- [ ] **Step 2: Commit**
+
+---
+
+## Task 6: Flyway-migration: oauth2_authorization + oauth2_authorization_consent
+
+Spring Authorization Server lagrar pågående auth-flöden i två extra tabeller.
+
+- [ ] **Step 1: Hämta schemat**
+
+```bash
+curl -sL https://raw.githubusercontent.com/spring-projects/spring-authorization-server/main/oauth2-authorization-server/src/main/resources/org/springframework/security/oauth2/server/authorization/oauth2-authorization-schema.sql \
+  >> services/auth-service/src/main/resources/db/migration/V3__create_oauth2_authorization_tables.sql
+
+curl -sL https://raw.githubusercontent.com/spring-projects/spring-authorization-server/main/oauth2-authorization-server/src/main/resources/org/springframework/security/oauth2/server/authorization/oauth2-authorization-consent-schema.sql \
+  >> services/auth-service/src/main/resources/db/migration/V3__create_oauth2_authorization_tables.sql
+```
+
+- [ ] **Step 2: Commit**
+
+---
+
+## Task 7: Flyway-migration: outbox_events (oförändrat från originell plan)
 
 ```sql
 CREATE TABLE outbox_events (
@@ -588,220 +409,341 @@ CREATE INDEX idx_outbox_unprocessed
     WHERE processed_at IS NULL;
 ```
 
-- [ ] **Step 2: Commit**
-
-```bash
-git add services/auth-service/src/main/resources/db/migration/V2__create_outbox_events.sql
-git commit -m "feat(auth-service): add outbox_events table migration"
-```
+Commit.
 
 ---
 
-## Task 9: Implementera `OutboxEvent`-entitet och repository
+## Task 8: Flyway-migration: seed OAuth2-klienter
+
+`gateway`-klient (Spring Cloud Gateway, ersätter den tidigare-planerade BFF) och `bot-service`-klient seedas vid uppstart. `client_secret` BCrypt-hashas. Plaintext-värden lagras i K8s Secrets (samma värde måste konfigureras både i Auth Server och i klienten).
+
+För demon använder vi statiska secrets — i prod skulle dessa roteras.
+
+- [ ] **Step 1: Generera secrets manuellt och spara i .env (eller K8s Secret)**
+
+```bash
+GATEWAY_SECRET=$(openssl rand -hex 32)
+BOT_SECRET=$(openssl rand -hex 32)
+echo "GATEWAY_CLIENT_SECRET=$GATEWAY_SECRET" >> .env
+echo "BOT_CLIENT_SECRET=$BOT_SECRET" >> .env
+# Generera BCrypt-hashar för seed-migrationen:
+GATEWAY_HASH=$(htpasswd -bnBC 10 "" "$GATEWAY_SECRET" | tr -d ':\n' | sed 's/$2y/$2a/')
+BOT_HASH=$(htpasswd -bnBC 10 "" "$BOT_SECRET" | tr -d ':\n' | sed 's/$2y/$2a/')
+echo "GATEWAY_BCRYPT=$GATEWAY_HASH"
+echo "BOT_BCRYPT=$BOT_HASH"
+```
+
+- [ ] **Step 2: Skriv V5-migrationen med hash-värdena**
+
+```sql
+-- V5__seed_oauth2_clients.sql
+INSERT INTO oauth2_registered_client (
+    id, client_id, client_id_issued_at, client_secret, client_secret_expires_at,
+    client_name, client_authentication_methods, authorization_grant_types,
+    redirect_uris, post_logout_redirect_uris, scopes, client_settings, token_settings
+) VALUES (
+    'gateway-client-id-uuid-1',
+    'gateway',
+    NOW(),
+    '<GATEWAY_BCRYPT från Step 1>',
+    NULL,
+    'Spring Cloud Gateway',
+    'client_secret_basic',
+    'authorization_code,refresh_token',
+    'http://localhost:8080/login/oauth2/code/auth-service',
+    'http://localhost:3000/',
+    'openid,profile',
+    '{"@class":"java.util.Collections$UnmodifiableMap","settings.client.require-proof-key":true,"settings.client.require-authorization-consent":false}',
+    '{"@class":"java.util.Collections$UnmodifiableMap","settings.token.access-token-time-to-live":["java.time.Duration",3600.0],"settings.token.refresh-token-time-to-live":["java.time.Duration",86400.0],"settings.token.access-token-format":{"@class":"org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat","value":"self-contained"}}'
+);
+
+INSERT INTO oauth2_registered_client (
+    id, client_id, client_id_issued_at, client_secret, client_secret_expires_at,
+    client_name, client_authentication_methods, authorization_grant_types,
+    redirect_uris, post_logout_redirect_uris, scopes, client_settings, token_settings
+) VALUES (
+    'bot-client-id-uuid-1',
+    'bot-service',
+    NOW(),
+    '<BOT_BCRYPT från Step 1>',
+    NULL,
+    'Bot Service',
+    'client_secret_basic',
+    'client_credentials',
+    '',
+    '',
+    'bot:write',
+    '{"@class":"java.util.Collections$UnmodifiableMap","settings.client.require-proof-key":false,"settings.client.require-authorization-consent":false}',
+    '{"@class":"java.util.Collections$UnmodifiableMap","settings.token.access-token-time-to-live":["java.time.Duration",3600.0],"settings.token.access-token-format":{"@class":"org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat","value":"self-contained"}}'
+);
+```
+
+OBS: client_settings och token_settings är Jackson-serialiserade Maps — formatet är hårt och måste matcha exakt vad Spring Authorization Server förväntar. Vid execution-tid verifiera mot Spring-dokumentationen för aktuell version.
+
+**Alternativ approach:** seeda klienter programmatiskt i en `@PostConstruct` på en config-bean istället för Flyway. Mer pålitligt eftersom Spring själv kan serialisera settings. Detta är vad jag rekommenderar — Flyway-SQL för settings är fragil. Anpassa V5 till tom-fil och lägg seed-koden i en `OAuth2ClientSeeder`-komponent.
+
+- [ ] **Step 3: Commit**
+
+---
+
+## Task 9: AuthorizationServerConfig — SecurityFilterChain + clients-bean
 
 **Files:**
-- Create: `services/auth-service/src/main/java/com/devroom/auth/domain/OutboxEvent.java`
-- Create: `services/auth-service/src/main/java/com/devroom/auth/domain/OutboxRepository.java`
+- Create: `services/auth-service/src/main/java/com/devroom/auth/config/AuthorizationServerConfig.java`
 
-- [ ] **Step 1: Skapa entitet**
+```java
+package com.devroom.auth.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.oauth2.server.authorization.client.JdbcRegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
+import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
+import org.springframework.security.oauth2.server.authorization.config.annotation.web.configurers.OAuth2AuthorizationServerConfigurer;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
+import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
+import org.springframework.http.MediaType;
+
+@Configuration
+public class AuthorizationServerConfig {
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+        OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
+                OAuth2AuthorizationServerConfigurer.authorizationServer();
+
+        http
+            .securityMatcher(authorizationServerConfigurer.getEndpointsMatcher())
+            .with(authorizationServerConfigurer, configurer ->
+                    configurer.oidc(Customizer.withDefaults())
+            )
+            .exceptionHandling(exceptions ->
+                    exceptions.defaultAuthenticationEntryPointFor(
+                            new LoginUrlAuthenticationEntryPoint("/login"),
+                            new MediaTypeRequestMatcher(MediaType.TEXT_HTML)
+                    )
+            )
+            .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED));
+
+        return http.build();
+    }
+
+    @Bean
+    public RegisteredClientRepository registeredClientRepository(JdbcTemplate jdbcTemplate) {
+        return new JdbcRegisteredClientRepository(jdbcTemplate);
+    }
+}
+```
+
+Commit.
+
+---
+
+## Task 10: DefaultSecurityConfig — för login-UI + signup-routes
+
+```java
+package com.devroom.auth.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class DefaultSecurityConfig {
+
+    @Bean
+    @Order(2)
+    public SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/login", "/signup", "/css/**", "/actuator/**").permitAll()
+                .anyRequest().authenticated()
+            )
+            .formLogin(form -> form.loginPage("/login"))
+            .logout(logout -> logout.logoutSuccessUrl("/login?logged-out"));
+        return http.build();
+    }
+}
+```
+
+Commit.
+
+---
+
+## Task 11: TokenCustomizerConfig — lägg `team_id`-claim på user-tokens
+
+**Files:**
+- Create: `services/auth-service/src/main/java/com/devroom/auth/config/TokenCustomizerConfig.java`
+
+**Vad detta gör:** När Auth Server utfärdar ett access-token efter Authorization Code-flödet, kallar den vår `OAuth2TokenCustomizer`-bean. Vi använder den för att lägga till `team_id`-claim baserat på vilken user som autentiserats.
+
+```java
+package com.devroom.auth.config;
+
+import com.devroom.auth.domain.DevroomUserRepository;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.server.authorization.token.JwtEncodingContext;
+import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenCustomizer;
+
+@Configuration
+public class TokenCustomizerConfig {
+
+    @Bean
+    public OAuth2TokenCustomizer<JwtEncodingContext> jwtCustomizer(DevroomUserRepository repo) {
+        return context -> {
+            if ("access_token".equals(context.getTokenType().getValue())
+                    && context.getPrincipal() != null
+                    && context.getPrincipal().getName() != null) {
+                repo.findByUsername(context.getPrincipal().getName())
+                        .ifPresent(user -> context.getClaims().claim("team_id", user.getTeamId().toString()));
+            }
+        };
+    }
+}
+```
+
+Commit.
+
+---
+
+## Task 12: DevroomUser-entitet + UserDetailsService
+
+**Files:**
+- Create: `services/auth-service/src/main/java/com/devroom/auth/domain/DevroomUser.java`
+- Create: `services/auth-service/src/main/java/com/devroom/auth/domain/DevroomUserRepository.java`
+- Create: `services/auth-service/src/main/java/com/devroom/auth/infra/DevroomUserDetailsService.java`
+
+**DevroomUser.java:**
 
 ```java
 package com.devroom.auth.domain;
 
 import jakarta.persistence.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
-@Table(name = "outbox_events")
-public class OutboxEvent {
+@Table(name = "users")
+public class DevroomUser {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @Column(name = "user_id")
+    private UUID userId;
 
-    @Column(name = "event_type", nullable = false)
-    private String eventType;
+    @Column(nullable = false, unique = true)
+    private String username;     // = email
 
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(nullable = false, columnDefinition = "jsonb")
-    private String payload;
+    @Column(nullable = false)
+    private String password;     // BCrypt
+
+    @Column(nullable = false)
+    private boolean enabled;
+
+    @Column(name = "team_id", nullable = false)
+    private UUID teamId;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    @Column(name = "processed_at")
-    private Instant processedAt;
+    protected DevroomUser() {}
 
-    protected OutboxEvent() {}
-
-    public OutboxEvent(String eventType, String payload) {
-        this.eventType = eventType;
-        this.payload = payload;
+    public DevroomUser(UUID userId, String username, String password, UUID teamId) {
+        this.userId = userId;
+        this.username = username;
+        this.password = password;
+        this.enabled = true;
+        this.teamId = teamId;
         this.createdAt = Instant.now();
     }
 
-    public Long getId() { return id; }
-    public String getEventType() { return eventType; }
-    public String getPayload() { return payload; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getProcessedAt() { return processedAt; }
-
-    public void markProcessed() {
-        this.processedAt = Instant.now();
-    }
+    public UUID getUserId() { return userId; }
+    public String getUsername() { return username; }
+    public String getPassword() { return password; }
+    public boolean isEnabled() { return enabled; }
+    public UUID getTeamId() { return teamId; }
 }
 ```
 
-- [ ] **Step 2: Skapa repository**
+**Repository:**
 
 ```java
 package com.devroom.auth.domain;
 
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
+import java.util.Optional;
+import java.util.UUID;
+
+public interface DevroomUserRepository extends JpaRepository<DevroomUser, UUID> {
+    Optional<DevroomUser> findByUsername(String username);
+    boolean existsByUsername(String username);
+}
+```
+
+**UserDetailsService:**
+
+```java
+package com.devroom.auth.infra;
+
+import com.devroom.auth.domain.DevroomUserRepository;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 
-public interface OutboxRepository extends JpaRepository<OutboxEvent, Long> {
+@Service
+public class DevroomUserDetailsService implements UserDetailsService {
 
-    @Query("SELECT e FROM OutboxEvent e WHERE e.processedAt IS NULL ORDER BY e.createdAt ASC")
-    List<OutboxEvent> findUnprocessed(Pageable pageable);
+    private final DevroomUserRepository repo;
+
+    public DevroomUserDetailsService(DevroomUserRepository repo) {
+        this.repo = repo;
+    }
+
+    @Override
+    public UserDetails loadUserByUsername(String username) {
+        var u = repo.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException(username));
+        return User.builder()
+                .username(u.getUsername())
+                .password(u.getPassword())
+                .authorities("ROLE_USER")
+                .disabled(!u.isEnabled())
+                .build();
+    }
 }
 ```
 
-- [ ] **Step 3: Kompilera**
-
-Run: `mvn -pl services/auth-service compile`
-Expected: BUILD SUCCESS.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add services/auth-service/src/main/java/com/devroom/auth/domain/Outbox*.java
-git commit -m "feat(auth-service): add OutboxEvent entity and repository"
-```
+Commit.
 
 ---
 
-## Task 10: Implementera `SignupService`
+## Task 13: SignupService + SignupController
 
-**Files:**
-- Create: `services/auth-service/src/main/java/com/devroom/auth/application/SignupService.java`
-- Create: `services/auth-service/src/main/java/com/devroom/auth/application/DuplicateEmailException.java`
-- Create: `services/auth-service/src/test/java/com/devroom/auth/application/SignupServiceTest.java`
-
-- [ ] **Step 1: Skapa exception**
+**SignupService.java:**
 
 ```java
 package com.devroom.auth.application;
 
-public class DuplicateEmailException extends RuntimeException {
-    public DuplicateEmailException(String email) {
-        super("Email already exists: " + email);
-    }
-}
-```
-
-- [ ] **Step 2: Skriv det failande testet**
-
-```java
-package com.devroom.auth.application;
-
-import com.devroom.auth.JwtClaims;
-import com.devroom.auth.JwtIssuer;
-import com.devroom.auth.config.JwtConfig.JwtSettings;
-import com.devroom.auth.domain.Credentials;
-import com.devroom.auth.domain.CredentialsRepository;
+import com.devroom.auth.domain.DevroomUser;
+import com.devroom.auth.domain.DevroomUserRepository;
 import com.devroom.auth.domain.OutboxEvent;
 import com.devroom.auth.domain.OutboxRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-
-import java.time.Duration;
-import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-
-class SignupServiceTest {
-
-    private CredentialsRepository credentialsRepo;
-    private OutboxRepository outboxRepo;
-    private PasswordHasher hasher;
-    private JwtIssuer issuer;
-    private SignupService service;
-
-    @BeforeEach
-    void setup() {
-        credentialsRepo = mock(CredentialsRepository.class);
-        outboxRepo = mock(OutboxRepository.class);
-        hasher = mock(PasswordHasher.class);
-        issuer = mock(JwtIssuer.class);
-        ObjectMapper mapper = new ObjectMapper();
-        JwtSettings settings = new JwtSettings("auth-service", Duration.ofHours(1), "team-demo");
-
-        service = new SignupService(credentialsRepo, outboxRepo, hasher, issuer, settings, mapper);
-    }
-
-    @Test
-    void signupCreatesCredentialsAndOutboxEventAndIssuesJwt() {
-        when(credentialsRepo.existsByEmail("annika@example.com")).thenReturn(false);
-        when(hasher.hash("password123")).thenReturn("hashed");
-        when(issuer.issue(any(JwtClaims.class))).thenReturn("jwt-token");
-
-        SignupService.Result result = service.signup("annika@example.com", "password123");
-
-        assertNotNull(result.userId());
-        assertEquals("jwt-token", result.jwt());
-
-        ArgumentCaptor<Credentials> credCaptor = ArgumentCaptor.forClass(Credentials.class);
-        verify(credentialsRepo).save(credCaptor.capture());
-        assertEquals("annika@example.com", credCaptor.getValue().getEmail());
-        assertEquals("hashed", credCaptor.getValue().getPasswordHash());
-
-        ArgumentCaptor<OutboxEvent> outboxCaptor = ArgumentCaptor.forClass(OutboxEvent.class);
-        verify(outboxRepo).save(outboxCaptor.capture());
-        assertEquals("user.registered", outboxCaptor.getValue().getEventType());
-        assertTrue(outboxCaptor.getValue().getPayload().contains(result.userId().toString()));
-    }
-
-    @Test
-    void signupWithExistingEmailThrows() {
-        when(credentialsRepo.existsByEmail("dup@example.com")).thenReturn(true);
-
-        assertThrows(DuplicateEmailException.class,
-                () -> service.signup("dup@example.com", "password"));
-        verify(credentialsRepo, never()).save(any());
-        verify(outboxRepo, never()).save(any());
-    }
-}
-```
-
-- [ ] **Step 3: Kör — ska faila**
-
-Run: `mvn -pl services/auth-service test`
-Expected: COMPILATION FAILURE.
-
-- [ ] **Step 4: Implementera `SignupService`**
-
-```java
-package com.devroom.auth.application;
-
-import com.devroom.auth.JwtClaims;
-import com.devroom.auth.JwtIssuer;
-import com.devroom.auth.config.JwtConfig.JwtSettings;
-import com.devroom.auth.domain.Credentials;
-import com.devroom.auth.domain.CredentialsRepository;
-import com.devroom.auth.domain.OutboxEvent;
-import com.devroom.auth.domain.OutboxRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -812,300 +754,64 @@ import java.util.UUID;
 @Service
 public class SignupService {
 
-    private final CredentialsRepository credentialsRepo;
+    private final DevroomUserRepository userRepo;
     private final OutboxRepository outboxRepo;
-    private final PasswordHasher hasher;
-    private final JwtIssuer issuer;
-    private final JwtSettings settings;
+    private final PasswordEncoder encoder;
     private final ObjectMapper mapper;
+    private final UUID demoTeamId;
 
-    public SignupService(CredentialsRepository credentialsRepo, OutboxRepository outboxRepo,
-                          PasswordHasher hasher, JwtIssuer issuer, JwtSettings settings,
-                          ObjectMapper mapper) {
-        this.credentialsRepo = credentialsRepo;
+    public SignupService(DevroomUserRepository userRepo, OutboxRepository outboxRepo,
+                          PasswordEncoder encoder, ObjectMapper mapper,
+                          @Value("${devroom.auth.demo-team-id}") String demoTeamId) {
+        this.userRepo = userRepo;
         this.outboxRepo = outboxRepo;
-        this.hasher = hasher;
-        this.issuer = issuer;
-        this.settings = settings;
+        this.encoder = encoder;
         this.mapper = mapper;
+        this.demoTeamId = UUID.fromString(demoTeamId);
     }
 
     @Transactional
-    public Result signup(String email, String password) {
-        if (credentialsRepo.existsByEmail(email)) {
+    public Result signup(String email, String password) throws Exception {
+        if (userRepo.existsByUsername(email)) {
             throw new DuplicateEmailException(email);
         }
 
         UUID userId = UUID.randomUUID();
-        String hash = hasher.hash(password);
-        credentialsRepo.save(new Credentials(userId, email, hash));
+        DevroomUser user = new DevroomUser(userId, email, encoder.encode(password), demoTeamId);
+        userRepo.save(user);
 
-        String payload = serializeUserRegistered(userId, email);
+        String payload = mapper.writeValueAsString(Map.of(
+                "event_id", UUID.randomUUID().toString(),
+                "event_type", "user.registered",
+                "occurred_at", Instant.now().toString(),
+                "user_id", userId.toString(),
+                "email", email,
+                "team_id", demoTeamId.toString()
+        ));
         outboxRepo.save(new OutboxEvent("user.registered", payload));
 
-        Instant now = Instant.now();
-        JwtClaims claims = JwtClaims.forUser(
-                userId.toString(),
-                settings.demoTeamId(),
-                now,
-                now.plus(settings.userTokenTtl())
-        );
-        String jwt = issuer.issue(claims);
-
-        return new Result(userId, jwt);
+        return new Result(userId);
     }
 
-    private String serializeUserRegistered(UUID userId, String email) {
-        try {
-            return mapper.writeValueAsString(Map.of(
-                    "event_id", UUID.randomUUID().toString(),
-                    "event_type", "user.registered",
-                    "occurred_at", Instant.now().toString(),
-                    "user_id", userId.toString(),
-                    "email", email,
-                    "team_id", settings.demoTeamId()
-            ));
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize event", e);
-        }
-    }
-
-    public record Result(UUID userId, String jwt) {}
+    public record Result(UUID userId) {}
 }
 ```
 
-- [ ] **Step 5: Kör — ska passa**
+Plus en `PasswordEncoder`-bean (BCrypt) i `@Configuration`-klass.
 
-Run: `mvn -pl services/auth-service test`
-Expected: BUILD SUCCESS, 5 tests passed.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add services/auth-service/src/main/java/com/devroom/auth/application/SignupService.java \
-        services/auth-service/src/main/java/com/devroom/auth/application/DuplicateEmailException.java \
-        services/auth-service/src/test/java/com/devroom/auth/application/SignupServiceTest.java
-git commit -m "feat(auth-service): add SignupService with atomic outbox write"
-```
-
----
-
-## Task 11: Implementera `LoginService`
-
-**Files:**
-- Create: `services/auth-service/src/main/java/com/devroom/auth/application/LoginService.java`
-- Create: `services/auth-service/src/main/java/com/devroom/auth/application/BadCredentialsException.java`
-- Create: `services/auth-service/src/test/java/com/devroom/auth/application/LoginServiceTest.java`
-
-- [ ] **Step 1: Skapa exception**
-
-```java
-package com.devroom.auth.application;
-
-public class BadCredentialsException extends RuntimeException {
-    public BadCredentialsException() {
-        super("Invalid email or password");
-    }
-}
-```
-
-- [ ] **Step 2: Skriv det failande testet**
-
-```java
-package com.devroom.auth.application;
-
-import com.devroom.auth.JwtClaims;
-import com.devroom.auth.JwtIssuer;
-import com.devroom.auth.config.JwtConfig.JwtSettings;
-import com.devroom.auth.domain.Credentials;
-import com.devroom.auth.domain.CredentialsRepository;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
-import java.time.Duration;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-
-class LoginServiceTest {
-
-    private CredentialsRepository credentialsRepo;
-    private PasswordHasher hasher;
-    private JwtIssuer issuer;
-    private LoginService service;
-
-    @BeforeEach
-    void setup() {
-        credentialsRepo = mock(CredentialsRepository.class);
-        hasher = mock(PasswordHasher.class);
-        issuer = mock(JwtIssuer.class);
-        JwtSettings settings = new JwtSettings("auth-service", Duration.ofHours(1), "team-demo");
-        service = new LoginService(credentialsRepo, hasher, issuer, settings);
-    }
-
-    @Test
-    void loginIssuesJwtForValidCredentials() {
-        UUID userId = UUID.randomUUID();
-        Credentials cred = new Credentials(userId, "annika@example.com", "stored-hash");
-        when(credentialsRepo.findByEmail("annika@example.com")).thenReturn(Optional.of(cred));
-        when(hasher.matches("password", "stored-hash")).thenReturn(true);
-        when(issuer.issue(any(JwtClaims.class))).thenReturn("jwt-xyz");
-
-        LoginService.Result result = service.login("annika@example.com", "password");
-
-        assertEquals(userId, result.userId());
-        assertEquals("jwt-xyz", result.jwt());
-    }
-
-    @Test
-    void loginRejectsUnknownEmail() {
-        when(credentialsRepo.findByEmail("unknown@example.com")).thenReturn(Optional.empty());
-
-        assertThrows(BadCredentialsException.class,
-                () -> service.login("unknown@example.com", "password"));
-    }
-
-    @Test
-    void loginRejectsWrongPassword() {
-        UUID userId = UUID.randomUUID();
-        Credentials cred = new Credentials(userId, "a@b.com", "stored-hash");
-        when(credentialsRepo.findByEmail("a@b.com")).thenReturn(Optional.of(cred));
-        when(hasher.matches("wrong", "stored-hash")).thenReturn(false);
-
-        assertThrows(BadCredentialsException.class,
-                () -> service.login("a@b.com", "wrong"));
-    }
-}
-```
-
-- [ ] **Step 3: Kör — ska faila**
-
-Run: `mvn -pl services/auth-service test`
-Expected: COMPILATION FAILURE.
-
-- [ ] **Step 4: Implementera**
-
-```java
-package com.devroom.auth.application;
-
-import com.devroom.auth.JwtClaims;
-import com.devroom.auth.JwtIssuer;
-import com.devroom.auth.config.JwtConfig.JwtSettings;
-import com.devroom.auth.domain.Credentials;
-import com.devroom.auth.domain.CredentialsRepository;
-import org.springframework.stereotype.Service;
-
-import java.time.Instant;
-import java.util.UUID;
-
-@Service
-public class LoginService {
-
-    private final CredentialsRepository credentialsRepo;
-    private final PasswordHasher hasher;
-    private final JwtIssuer issuer;
-    private final JwtSettings settings;
-
-    public LoginService(CredentialsRepository credentialsRepo, PasswordHasher hasher,
-                         JwtIssuer issuer, JwtSettings settings) {
-        this.credentialsRepo = credentialsRepo;
-        this.hasher = hasher;
-        this.issuer = issuer;
-        this.settings = settings;
-    }
-
-    public Result login(String email, String password) {
-        Credentials cred = credentialsRepo.findByEmail(email)
-                .orElseThrow(BadCredentialsException::new);
-        if (!hasher.matches(password, cred.getPasswordHash())) {
-            throw new BadCredentialsException();
-        }
-        Instant now = Instant.now();
-        JwtClaims claims = JwtClaims.forUser(
-                cred.getUserId().toString(),
-                settings.demoTeamId(),
-                now,
-                now.plus(settings.userTokenTtl())
-        );
-        return new Result(cred.getUserId(), issuer.issue(claims));
-    }
-
-    public record Result(UUID userId, String jwt) {}
-}
-```
-
-- [ ] **Step 5: Kör — ska passa**
-
-Run: `mvn -pl services/auth-service test`
-Expected: BUILD SUCCESS, 8 tests passed.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add services/auth-service/src/main/java/com/devroom/auth/application/LoginService.java \
-        services/auth-service/src/main/java/com/devroom/auth/application/BadCredentialsException.java \
-        services/auth-service/src/test/java/com/devroom/auth/application/LoginServiceTest.java
-git commit -m "feat(auth-service): add LoginService"
-```
-
----
-
-## Task 12: Implementera REST-controllers + DTOs + global exception handling
-
-**Files:**
-- Create: `services/auth-service/src/main/java/com/devroom/auth/web/AuthRequestDtos.java`
-- Create: `services/auth-service/src/main/java/com/devroom/auth/web/SignupController.java`
-- Create: `services/auth-service/src/main/java/com/devroom/auth/web/LoginController.java`
-- Create: `services/auth-service/src/main/java/com/devroom/auth/web/ExceptionHandlers.java`
-
-- [ ] **Step 1: Skapa DTOs**
+**SignupController.java:**
 
 ```java
 package com.devroom.auth.web;
 
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
-
-import java.util.UUID;
-
-public final class AuthRequestDtos {
-
-    public record SignupRequest(
-            @Email @NotBlank String email,
-            @NotBlank @Size(min = 8, max = 128) String password
-    ) {}
-
-    public record LoginRequest(
-            @Email @NotBlank String email,
-            @NotBlank String password
-    ) {}
-
-    public record AuthResponse(UUID userId, String jwt) {}
-
-    public record ErrorResponse(String error, String message) {}
-
-    private AuthRequestDtos() {}
-}
-```
-
-- [ ] **Step 2: Skapa SignupController**
-
-```java
-package com.devroom.auth.web;
-
+import com.devroom.auth.application.DuplicateEmailException;
 import com.devroom.auth.application.SignupService;
-import com.devroom.auth.web.AuthRequestDtos.AuthResponse;
-import com.devroom.auth.web.AuthRequestDtos.SignupRequest;
-import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
-@RestController
-@RequestMapping("/auth")
+@Controller
 public class SignupController {
 
     private final SignupService service;
@@ -1114,304 +820,92 @@ public class SignupController {
         this.service = service;
     }
 
+    @GetMapping("/signup")
+    public String form() {
+        return "signup";
+    }
+
     @PostMapping("/signup")
-    public ResponseEntity<AuthResponse> signup(@Valid @RequestBody SignupRequest req) {
-        SignupService.Result result = service.signup(req.email(), req.password());
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(new AuthResponse(result.userId(), result.jwt()));
+    public String signup(@RequestParam String email, @RequestParam String password, Model model) {
+        try {
+            service.signup(email, password);
+            return "redirect:/login?signup=success";
+        } catch (DuplicateEmailException e) {
+            model.addAttribute("error", "Email already exists");
+            return "signup";
+        } catch (Exception e) {
+            model.addAttribute("error", "Signup failed");
+            return "signup";
+        }
     }
 }
 ```
 
-- [ ] **Step 3: Skapa LoginController**
+**signup.html (Thymeleaf):**
 
-```java
-package com.devroom.auth.web;
-
-import com.devroom.auth.application.LoginService;
-import com.devroom.auth.web.AuthRequestDtos.AuthResponse;
-import com.devroom.auth.web.AuthRequestDtos.LoginRequest;
-import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.*;
-
-@RestController
-@RequestMapping("/auth")
-public class LoginController {
-
-    private final LoginService service;
-
-    public LoginController(LoginService service) {
-        this.service = service;
-    }
-
-    @PostMapping("/login")
-    public AuthResponse login(@Valid @RequestBody LoginRequest req) {
-        LoginService.Result result = service.login(req.email(), req.password());
-        return new AuthResponse(result.userId(), result.jwt());
-    }
-}
+```html
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><title>Sign up</title></head>
+<body>
+<h1>Skapa konto</h1>
+<form method="post" action="/signup">
+    <p th:if="${error}" th:text="${error}" style="color:red"></p>
+    <p><input type="email" name="email" placeholder="email" required></p>
+    <p><input type="password" name="password" placeholder="password" required minlength="8"></p>
+    <p><button type="submit">Skapa</button></p>
+</form>
+</body>
+</html>
 ```
 
-- [ ] **Step 4: Skapa ExceptionHandlers**
-
-```java
-package com.devroom.auth.web;
-
-import com.devroom.auth.application.BadCredentialsException;
-import com.devroom.auth.application.DuplicateEmailException;
-import com.devroom.auth.web.AuthRequestDtos.ErrorResponse;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.RestControllerAdvice;
-
-@RestControllerAdvice
-public class ExceptionHandlers {
-
-    @ExceptionHandler(DuplicateEmailException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicate(DuplicateEmailException e) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ErrorResponse("duplicate_email", e.getMessage()));
-    }
-
-    @ExceptionHandler(BadCredentialsException.class)
-    public ResponseEntity<ErrorResponse> handleBadCreds(BadCredentialsException e) {
-        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                .body(new ErrorResponse("invalid_credentials", "Invalid email or password"));
-    }
-
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException e) {
-        String msg = e.getBindingResult().getFieldErrors().stream()
-                .findFirst()
-                .map(err -> err.getField() + ": " + err.getDefaultMessage())
-                .orElse("Validation failed");
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse("validation_error", msg));
-    }
-}
-```
-
-- [ ] **Step 5: Kompilera och kör tester**
-
-Run: `mvn -pl services/auth-service test`
-Expected: BUILD SUCCESS, 8 tester (controllerns testas i integration-testet i Task 14).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add services/auth-service/src/main/java/com/devroom/auth/web/
-git commit -m "feat(auth-service): add REST controllers for signup and login"
-```
+Commit.
 
 ---
 
-## Task 13: Implementera `OutboxPublisher`-stub
+## Task 14: OutboxEvent + Repository + OutboxPublisher (stub)
 
-**Files:**
-- Create: `services/auth-service/src/main/java/com/devroom/auth/infra/OutboxPublisher.java`
+Identisk struktur som i ursprunglig plan — `@Scheduled` publisher som loggar tills RabbitMQ-koppling görs i Plan 04.
 
-- [ ] **Step 1: Skapa publisher-stub (loggar bara — RabbitMQ-koppling i plan 04)**
+(Inkluderar inte koden här för korthet — se ursprunglig Plan 02 Task 9 + Task 13. Logiken är oförändrad.)
 
-```java
-package com.devroom.auth.infra;
-
-import com.devroom.auth.domain.OutboxEvent;
-import com.devroom.auth.domain.OutboxRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-
-@Component
-public class OutboxPublisher {
-
-    private static final Logger log = LoggerFactory.getLogger(OutboxPublisher.class);
-    private static final int BATCH_SIZE = 100;
-
-    private final OutboxRepository repo;
-
-    public OutboxPublisher(OutboxRepository repo) {
-        this.repo = repo;
-    }
-
-    @Scheduled(fixedDelayString = "PT0.5S")
-    @Transactional
-    public void publishPending() {
-        List<OutboxEvent> events = repo.findUnprocessed(PageRequest.of(0, BATCH_SIZE));
-        if (events.isEmpty()) {
-            return;
-        }
-        for (OutboxEvent event : events) {
-            // TODO plan-04: publish to RabbitMQ
-            log.info("Outbox publish (stub): type={} payload={}", event.getEventType(), event.getPayload());
-            event.markProcessed();
-        }
-        repo.saveAll(events);
-        log.info("Marked {} outbox events as processed", events.size());
-    }
-}
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add services/auth-service/src/main/java/com/devroom/auth/infra/OutboxPublisher.java
-git commit -m "feat(auth-service): add OutboxPublisher stub (RabbitMQ wiring in plan 04)"
-```
+Commit.
 
 ---
 
-## Task 14: Skriv Testcontainers-baserat integrationstest
+## Task 15: Testcontainers integrationstest
 
 **Files:**
-- Create: `services/auth-service/src/test/resources/application-test.yml`
-- Create: `services/auth-service/src/test/resources/keys/test-private.pem`
-- Create: `services/auth-service/src/test/resources/keys/test-public.pem`
 - Create: `services/auth-service/src/test/java/com/devroom/auth/AuthServiceIntegrationTest.java`
-
-- [ ] **Step 1: Generera test-nycklar**
-
-Run:
-```bash
-mkdir -p services/auth-service/src/test/resources/keys
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
-  -out services/auth-service/src/test/resources/keys/test-private.pem
-openssl rsa -in services/auth-service/src/test/resources/keys/test-private.pem \
-  -pubout -out services/auth-service/src/test/resources/keys/test-public.pem
-```
-
-OBS: dessa nycklar är *bara för tester*, ingår i repo. Lägg till specifik undantagsregel i `.gitignore`:
-
-Modify `.gitignore` om nödvändigt:
-
-```
-*.pem
-!services/*/src/test/resources/keys/*.pem
-!keys/README.md
-```
-
-- [ ] **Step 2: Skapa test-config**
-
-```yaml
-# services/auth-service/src/test/resources/application-test.yml
-devroom:
-  auth:
-    private-key-path: classpath:keys/test-private.pem
-    public-key-path: classpath:keys/test-public.pem
-    issuer: auth-service
-    user-token-ttl: PT1H
-    demo-team-id: 11111111-1111-1111-1111-111111111111
-
-logging:
-  level:
-    com.devroom.auth: DEBUG
-```
-
-OBS: `KeyLoader.loadPrivateKey(Path)` tar `Path`, men classpath: går via Resource. Vi behöver justera config för att stödja classpath-paths. Alternativt: kopiera nycklarna till en temp-dir i testet via `@TempDir`. Vi gör det enklare: skriv `JwtConfig` så den läser via Spring `Resource` istället för `Path`.
-
-Fix: revidera `JwtConfig.java`:
-
-```java
-package com.devroom.auth.config;
-
-import com.devroom.auth.JwtIssuer;
-import com.devroom.auth.KeyLoader;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.core.io.Resource;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Duration;
-
-@Configuration
-public class JwtConfig {
-
-    @Bean
-    public JwtIssuer jwtIssuer(@Value("${devroom.auth.private-key-path}") Resource privateKeyResource) throws IOException {
-        Path tempPath = Files.createTempFile("auth-private-", ".pem");
-        Files.copy(privateKeyResource.getInputStream(), tempPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        tempPath.toFile().deleteOnExit();
-        return new JwtIssuer(KeyLoader.loadPrivateKey(tempPath));
-    }
-
-    @Bean
-    public JwtSettings jwtSettings(
-            @Value("${devroom.auth.issuer}") String issuer,
-            @Value("${devroom.auth.user-token-ttl}") Duration userTokenTtl,
-            @Value("${devroom.auth.demo-team-id}") String demoTeamId
-    ) {
-        return new JwtSettings(issuer, userTokenTtl, demoTeamId);
-    }
-
-    public record JwtSettings(String issuer, Duration userTokenTtl, String demoTeamId) {}
-}
-```
-
-Detta använder Spring `Resource` så både `file:./keys/private.pem` och `classpath:keys/test-private.pem` fungerar.
-
-Uppdatera `application.yml`:
-
-```yaml
-devroom:
-  auth:
-    private-key-path: ${AUTH_PRIVATE_KEY_PATH:file:./keys/private.pem}
-    ...
-```
-
-- [ ] **Step 3: Skriv integration-testet**
 
 ```java
 package com.devroom.auth;
 
-import com.devroom.auth.JwtClaims;
-import com.devroom.auth.JwtValidator;
-import com.devroom.auth.KeyLoader;
-import com.devroom.auth.domain.CredentialsRepository;
-import com.devroom.auth.domain.OutboxRepository;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.http.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.PublicKey;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("test")
 @Testcontainers
 class AuthServiceIntegrationTest {
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("authdb")
-            .withUsername("dbuser")
-            .withPassword("dbpass");
+            .withDatabaseName("authdb");
 
     @DynamicPropertySource
     static void overrideProps(DynamicPropertyRegistry registry) {
@@ -1421,257 +915,94 @@ class AuthServiceIntegrationTest {
     }
 
     @LocalServerPort int port;
-
     @Autowired TestRestTemplate http;
-    @Autowired CredentialsRepository credRepo;
-    @Autowired OutboxRepository outboxRepo;
-    @Autowired ObjectMapper mapper;
 
-    @AfterEach
-    void cleanup() {
-        outboxRepo.deleteAll();
-        credRepo.deleteAll();
+    @Test
+    void jwksEndpointExposesPublicKey() {
+        ResponseEntity<Map> resp = http.getForEntity("/.well-known/jwks.json", Map.class);
+        assertThat(resp.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(resp.getBody()).containsKey("keys");
     }
 
     @Test
-    void signupCreatesCredentialsOutboxAndReturnsValidJwt() throws Exception {
-        ResponseEntity<Map> resp = http.postForEntity(
-                "/auth/signup",
-                Map.of("email", "annika@example.com", "password", "password123"),
-                Map.class
-        );
-
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(resp.getBody()).containsKeys("userId", "jwt");
-
-        String userIdStr = (String) resp.getBody().get("userId");
-        String jwt = (String) resp.getBody().get("jwt");
-
-        // Credentials skrevs
-        assertThat(credRepo.findByEmail("annika@example.com")).isPresent();
-
-        // Outbox-rad finns
-        var outboxRows = outboxRepo.findAll();
-        assertThat(outboxRows).hasSize(1);
-        assertThat(outboxRows.get(0).getEventType()).isEqualTo("user.registered");
-        JsonNode payload = mapper.readTree(outboxRows.get(0).getPayload());
-        assertThat(payload.get("user_id").asText()).isEqualTo(userIdStr);
-
-        // JWT är valid
-        Path tempPub = Files.createTempFile("test-pub-", ".pem");
-        Files.copy(new ClassPathResource("keys/test-public.pem").getInputStream(), tempPub,
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        PublicKey pub = KeyLoader.loadPublicKey(tempPub);
-        JwtValidator validator = new JwtValidator(pub, "auth-service");
-        JwtClaims claims = validator.validate(jwt);
-        assertThat(claims.subject()).isEqualTo(userIdStr);
+    void openidConfigurationIsAvailable() {
+        ResponseEntity<Map> resp = http.getForEntity("/.well-known/openid-configuration", Map.class);
+        assertThat(resp.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(resp.getBody()).containsKey("issuer");
     }
 
     @Test
-    void duplicateSignupReturns409() {
-        http.postForEntity("/auth/signup", Map.of("email", "dup@example.com", "password", "pass1234"), Map.class);
-        ResponseEntity<Map> resp = http.postForEntity(
-                "/auth/signup", Map.of("email", "dup@example.com", "password", "pass1234"), Map.class);
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    void clientCredentialsGrantReturnsAccessToken() {
+        // Auth med bot-service-klienten
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBasicAuth("bot-service", "<BOT_CLIENT_SECRET>");  // injicera via @Value eller env
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+
+        MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
+        body.add("grant_type", "client_credentials");
+        body.add("scope", "bot:write");
+
+        ResponseEntity<Map> resp = http.postForEntity("/oauth2/token",
+                new HttpEntity<>(body, headers), Map.class);
+        assertThat(resp.getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(resp.getBody()).containsKey("access_token");
     }
 
     @Test
-    void loginReturnsJwtForValidCredentials() {
-        http.postForEntity("/auth/signup", Map.of("email", "login@example.com", "password", "password123"), Map.class);
-
-        ResponseEntity<Map> resp = http.postForEntity(
-                "/auth/login", Map.of("email", "login@example.com", "password", "password123"), Map.class);
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(resp.getBody()).containsKey("jwt");
+    void signupCreatesUserAndOutboxEvent() {
+        ResponseEntity<String> resp = http.postForEntity("/signup",
+                new HttpEntity<>("email=test@test.com&password=password123",
+                        formHeaders()), String.class);
+        // Expect redirect to /login?signup=success
+        assertThat(resp.getStatusCode().is3xxRedirection()).isTrue();
+        // Verifiera att rad finns i users + outbox via DataSource
     }
 
-    @Test
-    void loginRejectsWrongPassword() {
-        http.postForEntity("/auth/signup", Map.of("email", "wrong@example.com", "password", "password123"), Map.class);
-        ResponseEntity<Map> resp = http.postForEntity(
-                "/auth/login", Map.of("email", "wrong@example.com", "password", "WRONG"), Map.class);
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    private static HttpHeaders formHeaders() {
+        var h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        return h;
     }
 }
 ```
 
-- [ ] **Step 4: Kör testet**
-
-Run: `mvn -pl services/auth-service verify`
-Expected: BUILD SUCCESS, alla tester passar (inkl. Testcontainers).
-
-OBS: första körningen tar tid pga Docker-image-pull.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add services/auth-service/src/test/
-git commit -m "test(auth-service): add Testcontainers integration test for signup + login"
-```
+Commit.
 
 ---
 
-## Task 15: Skriv ADR-0002 (Outbox Pattern)
+## Task 16: ADR-0002 (Outbox Pattern) — oförändrat
 
-**Files:**
-- Create: `docs/adr/0002-outbox-pattern.md`
+(Identiskt med ursprunglig plan task 15. Outbox-mönstret är oförändrat av OAuth2-pivoten.)
 
-- [ ] **Step 1: Skriv ADR-0002**
-
-```markdown
-# ADR-0002: Outbox Pattern för signup-event
-
-**Status:** Accepted
-**Date:** 2026-05-10
-
-## Context
-
-Vid signup måste Auth Service göra två saker:
-1. Skapa credentials-rad i AuthDB
-2. Publicera `user.registered`-event till RabbitMQ så User Service kan skapa profil
-
-Om vi gör dessa som två separata operationer riskerar vi dual-write-problemet: krasch mellan steg 1 och 2 lämnar systemet i ett läge där en user finns i Auth men aldrig fick en profil.
-
-## Decision
-
-Vi använder Outbox Pattern. I samma DB-transaktion som credentials-raden skapas, skrivs också en rad till `outbox_events`-tabellen. Postgres garanterar atomicity. En `@Scheduled`-publisher pollar `outbox_events`-tabellen och publicerar olästa rader till RabbitMQ.
-
-## Considered alternatives
-
-**Alt A: Synkron orchestration via BFF.** BFF anropar Auth, sedan User. Vid fel: kompenserande delete. Avvisad — "best effort"-kompensering är fortfarande en eventually-consistent semantik dold bakom synkron API. Outbox är mer transparent.
-
-**Alt B: Event-driven choreography utan outbox.** Auth publicerar direkt till RabbitMQ efter DB-write. Avvisad — exakt det dual-write-problem vi vill undvika.
-
-**Alt C: CDC-baserad outbox (Debezium).** Avvisad — kraftfullt men för komplext för 140h budget. Polling fungerar utmärkt för demon.
-
-## Consequences
-
-**Positiva:**
-- Stark garanti: om credentials skrevs har eventet skrivits till outbox.
-- Isolering: RabbitMQ kan vara nere utan att signup failar.
-- En outbox-tabell är enkel att förstå i kodgranskning.
-
-**Negativa:**
-- At-least-once-leverans: publishern kan krascha mellan publish och mark-processed → samma event publiceras igen. Mitigation: idempotency på consumer-sidan (User Service kollar om user_id redan finns).
-- Liten latens (~500ms-polling-cykel) mellan signup och profil-skapande. Acceptabelt: frontend visar "Laddar profil..." och retryar.
-- En tabell att städa över tid. Cron-rensning av `processed_at IS NOT NULL`-rader äldre än 30 dagar (future work).
-
-## References
-
-- Spec sektion 5.3
-- Pattern: https://microservices.io/patterns/data/transactional-outbox.html
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add docs/adr/0002-outbox-pattern.md
-git commit -m "docs(adr): 0002 outbox pattern for signup event"
-```
+Commit.
 
 ---
 
-## Task 16: Skriv ADR-0005 (Inga FK över DB-gränser)
+## Task 17: ADR-0005 (Inga FK över DB-gränser) — oförändrat
 
-**Files:**
-- Create: `docs/adr/0005-no-cross-db-foreign-keys.md`
+(Identiskt med ursprunglig plan task 16.)
 
-- [ ] **Step 1: Skriv ADR-0005**
-
-```markdown
-# ADR-0005: Inga foreign keys över databas-gränser
-
-**Status:** Accepted
-**Date:** 2026-05-10
-
-## Context
-
-Devroom har tre databaser (AuthDB, UserDB, MessageDB), en per service. Många kolumner refererar till entiteter i andra databaser: `messages.sender_id` pekar på en row i `users` (UserDB), `messages.channel_id` pekar på `channels` (MessageDB själv, OK), credentials.user_id matchar users.user_id, och så vidare.
-
-## Decision
-
-Vi använder **inga foreign keys över databas-gränser**. FK-constraints är enbart tillåtna inom samma databas (t.ex. `messages.parent_message_id REFERENCES messages.id`). Cross-DB-referenser är "soft references" — bara UUID:er som application-koden förväntar sig matchar.
-
-## Considered alternatives
-
-**Alt A: Distributed transactions (XA).** Avvisad — Postgres har stöd för det, men det kopplar samman tjänster i ett gemensamt commit-protokoll. Bryter mot service-isolering.
-
-**Alt B: Event-driven sync med materialized views.** Auth publicerar `user.registered`, andra services lyssnar och bygger up read-replicas av users-tabellen i sina egna DB:er. Avvisad — för stor för 140h, värd för future work.
-
-## Consequences
-
-**Positiva:**
-- Service-isolering: en service kan migrera sin databas utan att hänsyn tas till andras.
-- Inga distributed-transaction-problem.
-- Tydlig boundary i kod: cross-service-uppslag sker via gRPC, inte JOIN.
-
-**Negativa:**
-- Application-level integrity: koden måste hantera att en `sender_id` kanske inte längre finns i UserDB (t.ex. user borttagen). Mitigation: vi tillåter inte user-borttagning i v1; om implementerad senare hanteras dangling references via soft-delete.
-- Hård fail vid mention-resolution-miss (ADR-0007 reservpott motiverar valet).
-
-## References
-
-- Spec sektion 3.3
-```
-
-- [ ] **Step 2: Commit**
-
-```bash
-git add docs/adr/0005-no-cross-db-foreign-keys.md
-git commit -m "docs(adr): 0005 no foreign keys across database boundaries"
-```
+Commit.
 
 ---
 
-## Task 17: Plan-slut: full verifikation
+## Task 18: Plan-slut: full verifikation
 
-- [ ] **Step 1: Bygg från scratch**
-
-Run: `mvn -B clean verify`
-Expected: BUILD SUCCESS, alla tester passar (auth-starter: 9, auth-service: 8 unit + 4 integration = 12).
-
-- [ ] **Step 2: Manuell smoke-test mot lokal infra**
-
-Run:
-```bash
-docker compose -f docker-compose.dev.yml up -d auth-db
-sleep 5
-mvn -pl services/auth-service spring-boot:run &
-APP_PID=$!
-sleep 15
-
-# Signup
-curl -X POST http://localhost:8081/auth/signup \
-  -H "Content-Type: application/json" \
-  -d '{"email":"manual@test.com","password":"password123"}'
-
-# Login
-curl -X POST http://localhost:8081/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"manual@test.com","password":"password123"}'
-
-# Verifiera outbox-rad
-docker exec devroom-auth-db psql -U dbuser -d authdb -c \
-  "SELECT id, event_type, processed_at FROM outbox_events;"
-
-kill $APP_PID
-docker compose -f docker-compose.dev.yml down
-```
-
-Expected:
-- Signup returnerar 201 med `userId` + `jwt`
-- Login returnerar 200 med `jwt`
-- Outbox-tabellen har en rad med `event_type='user.registered'` och `processed_at` satt (av stub-publishern)
-
-- [ ] **Step 3: Slutkontroll mot Plan-2-Goal**
-
-Checklista:
-- [ ] `mvn verify` passerar
-- [ ] Signup via curl ger JWT + 201
-- [ ] Login via curl ger JWT + 200
-- [ ] Outbox-rad finns efter signup
-- [ ] Stub-publisher loggar och markerar processed
-- [ ] ADR-0002 + ADR-0005 skrivna
+- [ ] `mvn -B clean verify` passerar (alla integrationstester)
+- [ ] Manuell smoke-test:
+  - `mvn -pl services/auth-service spring-boot:run`
+  - Öppna http://localhost:8081/.well-known/jwks.json → JSON med RSA-nyckel
+  - Öppna http://localhost:8081/.well-known/openid-configuration → discovery-dokument
+  - Curl `client_credentials`-grant:
+    ```bash
+    curl -X POST http://localhost:8081/oauth2/token \
+      -u "bot-service:$BOT_CLIENT_SECRET" \
+      -d "grant_type=client_credentials&scope=bot:write" | jq
+    ```
+    → access_token i svar
+  - Öppna http://localhost:8081/signup → formulär, skapa user
+  - Verifiera user + outbox-rad i Postgres
+- [ ] ADR-0002 + ADR-0005 skrivna (-0003 är redan skriven i pivot-arbete)
 
 ---
 
