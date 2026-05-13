@@ -1,8 +1,18 @@
 # Plan 01: Repo Bootstrap + Infrastruktur
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+>
+> **Revision 2026-05-12 — OAuth2-pivot + Revision 2026-05-13 — plan splittrad i två branches:**
+>
+> - **Task 1-3 klara** på branch `plan-01-bootstrap` (PR #1 mergad i `main` 2026-05-12). Commits: `b00496e` (parent POM), `f04172b` (auth-starter scaffold), `7d25b91` (JwtClaims).
+> - **Task 4-6 borttagna** vid OAuth2-pivoten. `auth-starter`-modulen togs bort i `05b36d9` eftersom JWT-utfärdande/validering nu sker via Spring Authorization Server + Resource Server (se `docs/adr/0003-oauth2-stack.md`). `KeyLoader`, `JwtIssuer`, `JwtValidator`, `InvalidJwtException` är inte längre relevanta — de ersätts implicit av starter-modulerna i Plan 02 och Plan 06.
+> - **Task 7-10 + 12 körs på branch `plan-01-finish`** (denna omgång).
+> - **Task 11 hoppas över.** Originalets argument (BFF-only vs. per-service-validering, RS256 vs. HS256, shared `auth-starter`) är inte längre design*val* — de är konsekvenser av OAuth2-stack-valet som redan dokumenteras i ADR-0003.
+> - **Task 12 verifikations-checklistan justeras:** 0 tester (ingen `auth-starter`), JJWT-version inte längre i POM.
 
-**Goal:** Sätt upp Maven multi-module monorepo, docker-compose med Postgres + RabbitMQ, delad `auth-starter`-modul med JWT-utility, gRPC `.proto`-fil, root CI. Vid plan-slut kan `mvn verify` och `docker compose up` köras framgångsrikt och `auth-starter` har testad JWT-issue/validate.
+**Goal (ursprungligt):** Sätt upp Maven multi-module monorepo, docker-compose med Postgres + RabbitMQ, delad `auth-starter`-modul med JWT-utility, gRPC `.proto`-fil, root CI.
+
+**Goal (efter pivot):** Sätt upp Maven multi-module monorepo (klart), docker-compose med Postgres + RabbitMQ, gRPC `.proto`-fil, root CI, ADR-0001. Vid plan-slut kan `mvn -B verify` och `docker compose -f docker-compose.dev.yml up -d` köras framgångsrikt på en clean checkout.
 
 **Architecture:** Maven multi-module med parent POM som låser Spring Boot 4 BOM och Java 21. `auth-starter` är ett delat library som varje service drar in. Tre separata Postgres-containrar i compose (matchar K8s-topologin senare). RabbitMQ med management-UI för debug.
 
@@ -379,6 +389,8 @@ git commit -m "feat(auth-starter): add JwtClaims value object"
 
 ## Task 4: Implementera `KeyLoader` för RSA-nycklar
 
+> **OBSOLETE — pivot 2026-05-12.** `auth-starter` borttagen. Spring Authorization Server genererar in-memory RSA-keypair vid uppstart (se Plan 02), Resource Servers fetchar public key via JWKS-endpoint. Inget behov av PEM-loader. Hoppa över hela denna task.
+
 **Files:**
 - Create: `modules/auth-starter/src/main/java/com/devroom/auth/KeyLoader.java`
 - Create: `modules/auth-starter/src/test/java/com/devroom/auth/KeyLoaderTest.java`
@@ -514,6 +526,8 @@ git commit -m "feat(auth-starter): add KeyLoader for RSA PEM files"
 
 ## Task 5: Implementera `JwtIssuer`
 
+> **OBSOLETE — pivot 2026-05-12.** Spring Authorization Server (Plan 02) tar över JWT-utfärdandet via `OAuth2TokenGenerator`. Hoppa över hela denna task.
+
 **Files:**
 - Create: `modules/auth-starter/src/main/java/com/devroom/auth/JwtIssuer.java`
 - Create: `modules/auth-starter/src/test/java/com/devroom/auth/JwtIssuerTest.java`
@@ -648,6 +662,8 @@ git commit -m "feat(auth-starter): add JwtIssuer for RS256 user and service toke
 ---
 
 ## Task 6: Implementera `JwtValidator`
+
+> **OBSOLETE — pivot 2026-05-12.** `spring-boot-starter-oauth2-resource-server` validerar JWTs automatiskt mot Auth Service's JWKS-endpoint i Plan 03/05. Hoppa över hela denna task.
 
 **Files:**
 - Create: `modules/auth-starter/src/main/java/com/devroom/auth/JwtValidator.java`
@@ -1177,6 +1193,8 @@ git commit -m "docs(adr): 0001 microservice decomposition"
 
 ## Task 11: Skriv ADR-0003 (JWT defense-in-depth)
 
+> **SKIPPED — pivot 2026-05-12.** `docs/adr/0003-oauth2-stack.md` ersätter denna ADR. Per-service-validering är inte längre ett designval utan en konsekvens av att alla services är `spring-boot-starter-oauth2-resource-server`. RS256/JWKS-valet täcks implicit av Spring Authorization Server-valet. Hoppa över hela denna task.
+
 **Files:**
 - Create: `docs/adr/0003-jwt-defense-in-depth.md`
 
@@ -1238,7 +1256,7 @@ git commit -m "docs(adr): 0003 JWT defense-in-depth"
 - [ ] **Step 1: Kör hela bygget från scratch**
 
 Run: `mvn -B clean verify`
-Expected: BUILD SUCCESS, 9 tests passed.
+Expected: BUILD SUCCESS, 0 tester (auth-starter borttagen vid pivot; första riktiga tester kommer i Plan 02).
 
 - [ ] **Step 2: Starta och verifiera infra**
 
@@ -1263,14 +1281,14 @@ Expected: ~12 commits sedan initial commit, alla logiska enheter.
 
 - [ ] **Step 4: Slutkontroll mot Plan-1-Goal**
 
-Checklista:
-- [ ] `mvn verify` passerar (9 tester)
-- [ ] `docker compose -f docker-compose.dev.yml up` startar 4 healthy containrar
-- [ ] `auth-starter`-modulen har `JwtIssuer`, `JwtValidator`, `JwtClaims`, `KeyLoader`, `InvalidJwtException`
-- [ ] `proto/user.proto` finns
-- [ ] CI-workflow finns
-- [ ] ADR-0001 + ADR-0003 skrivna
-- [ ] Maven-versioner låsta i parent POM (Spring Boot 4, JJWT 0.12)
+Checklista (justerad efter pivot):
+- [ ] `mvn -B clean verify` passerar (0 tester än, men reactor bygger rent)
+- [ ] `docker compose -f docker-compose.dev.yml up -d` startar 4 healthy containrar (auth-db, user-db, message-db, rabbitmq)
+- [ ] `proto/user.proto` finns och är giltig protobuf
+- [ ] `.github/workflows/ci.yml` finns och kör `mvn -B verify`
+- [ ] ADR-0001 (microservice decomposition) skriven
+- [ ] ADR-0003 (oauth2-stack) finns sedan tidigare merge — kontrollera bara att den ligger i `docs/adr/`
+- [ ] Maven-versioner låsta i parent POM (Spring Boot 4.0.6, Testcontainers, gRPC, protobuf)
 
 ---
 
