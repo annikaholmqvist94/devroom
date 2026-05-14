@@ -1,0 +1,12 @@
+spring:
+  rabbitmq:
+    listener:
+      simple:
+        auto-startup: false
+  grpc:
+    server:
+      port: 0
+
+devroom:
+  user:
+    demo-team-id: 11111111-1111-1111-1111-111111111111
