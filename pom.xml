@@ -18,10 +18,12 @@
         <testcontainers.version>1.21.4</testcontainers.version>
         <grpc.version>1.81.0</grpc.version>
         <protobuf.version>4.34.1</protobuf.version>
+        <spring-grpc.version>1.0.3</spring-grpc.version>
     </properties>
 
     <modules>
         <module>services/auth-service</module>
+        <module>services/user-service</module>
     </modules>
 
     <dependencyManagement>
@@ -37,6 +39,13 @@
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
                 <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.grpc</groupId>
+                <artifactId>spring-grpc-dependencies</artifactId>
+                <version>${spring-grpc.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
