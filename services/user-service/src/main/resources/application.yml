@@ -1,0 +1,33 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: user-service
+  datasource:
+    url: jdbc:postgresql://localhost:5433/userdb
+    username: dbuser
+    password: dbpass
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: devroom
+    password: devroom
+  grpc:
+    server:
+      port: 9082
+
+devroom:
+  user:
+    demo-team-id: 11111111-1111-1111-1111-111111111111
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
