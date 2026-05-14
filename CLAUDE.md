@@ -24,22 +24,25 @@
 ## Aktuell branch och status
 
 ```bash
-git branch    # main + plan-01-finish (aktiv om PR #2 inte mergad)
+git branch    # main + plan-02-auth-service (klar, redo för PR)
 git log --oneline | head -5
 ```
 
-**Plan 01 status (2026-05-13):**
+**Plan 01 (2026-05-13, mergad PR #2):** parent POM, `proto/user.proto`, `docker-compose.yml` (single file med profiles-strategi), CI workflow, ADR-0001 mikroservice-decomposition. Task 4-6 (auth-starter) ersattes av Spring Authorization Server-pivot 2026-05-12, Task 11 täcks av ADR-0003.
 
-- Task 1-3 klara — parent POM, auth-starter scaffold, JwtClaims (PR #1 mergad 2026-05-12).
-- Task 4-6 borttagna vid pivot — auth-starter ersatt av Spring Authorization Server + Resource Server starters.
-- Task 7-10 + 12 klara på branch `plan-01-finish` (PR #2 öppen): `proto/user.proto`, `docker-compose.yml` (single file med profiles-strategi), `.github/workflows/ci.yml`, `docs/adr/0001-microservice-decomposition.md`.
-- Task 11 skipped — täcks av ADR-0003-oauth2-stack.
+**Plan 02 (2026-05-14, branch `plan-02-auth-service`, 23 commits):** Auth Service implementerad och verifierad end-to-end. Spring Boot 4.0.6 + Spring Authorization Server 7.0.5 med Variant F-config (klienter via `application.yml`-properties + InMemoryRegisteredClientRepository) och Variant C-signup (JSON-API, ingen Thymeleaf). 5/5 Testcontainers-tester gröna mot Postgres 16-alpine.
 
-**Pivot 2026-05-12 klart** — 8 commits dokumenterar omarbetet. Spec, ADR-0003, Plan 02 och Plan 06 helt omskrivna. Plans 05/07/08/10 har "Revision 2026-05-12"-banners. Plan 01 har "Revision 2026-05-13 — single compose file"-banner.
+- 2 Flyway-migrationer (V1 users + authorities, V4 outbox_events)
+- 5 config-klasser (KeyConfig RSA-keypair, SecurityBeansConfig PasswordEncoder + ObjectMapper, AuthorizationServerConfig, DefaultSecurityConfig, TokenCustomizerConfig team_id-claim)
+- DevroomUser-entitet + UserDetailsService + SignupService (transactional outbox-pattern)
+- OutboxPublisher `@Scheduled` stub — loggar tills RabbitMQ kopplas in i Plan 04
+- ADR-0002 (transactional outbox), ADR-0005 (inga cross-DB FK)
+
+Sju Boot 4-paket-rename fångades under arbetet och är dokumenterade i commits + plan-revisionsbanners: `OAuth2AuthorizationServerConfigurer` flyttad till `spring-security-config`, `OAuth2TokenType` flyttad till SAS-paketet, Flyway auto-config kräver `spring-boot-starter-flyway`, `TestRestTemplate` i `spring-boot-resttestclient` + `spring-boot-restclient`, `@ServiceConnection` i separat `spring-boot-testcontainers`, `@AutoConfigureTestRestTemplate` opt-in, `ObjectMapper`-bean inte auto-konfigurerad vid webmvc-only setup.
 
 **Compose-strategi:** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]` så att `docker compose up` bara startar infra som default.
 
-**Nästa steg:** När PR #2 mergad — ny branch `plan-02-auth-service` från uppdaterad main, börja Plan 02 Task 1 (scaffold auth-service Maven-modul med Spring Authorization Server).
+**Nästa steg:** Merga `plan-02-auth-service` till `main`, sedan ny branch `plan-03-user-service` (User Service med gRPC `GetUser` + `ResolveMentions`, RabbitMQ-consumer för `user.registered` från outbox).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
