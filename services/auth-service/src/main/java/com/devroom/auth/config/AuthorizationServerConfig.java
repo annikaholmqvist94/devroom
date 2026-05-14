@@ -17,12 +17,10 @@ import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
  * Variant F: ingen RegisteredClientRepository-bean här — Boot auto-konfigurerar
  * InMemoryRegisteredClientRepository från application.yml-properties.
  *
- * OPEN ISSUE (2026-05-14): JWKS-endpointen returnerar Spring default-login-form HTML istället för
- * JWKS JSON via TestRestTemplate-anrop. OIDC-discovery (samma /.well-known/-prefix) fungerar.
- * Hypoteser: SAS-configurator init:ar inte NimbusJwkSetEndpoint-filtret korrekt i Boot 4.0.6,
- * eller @Order/securityMatcher-conflict mellan denna chain och DefaultSecurityConfig.
- * Token-endpoint, signup, OIDC-discovery fungerar — bara JWKS är problematisk.
- * Plan: återkomm efter Plan 03/04 när vi vet mer om SAS-resource-server-integration.
+ * SAS 7.0.5-detalj: JWKS-endpointen är på /oauth2/jwks (default), inte /.well-known/jwks.json
+ * som OAuth2-konventionen säger. Resource servers ska upptäcka rätt path via discovery-dokumentets
+ * jwks_uri-fält (publicerat under /.well-known/openid-configuration), så det är inget problem i
+ * praktiken. Custom mapping kan göras via AuthorizationServerSettings.builder().jwkSetEndpoint(...).
  */
 @Configuration
 public class AuthorizationServerConfig {

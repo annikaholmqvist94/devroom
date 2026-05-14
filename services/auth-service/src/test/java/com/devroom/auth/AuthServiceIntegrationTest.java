@@ -3,7 +3,6 @@ package com.devroom.auth;
 import com.devroom.auth.domain.DevroomUserRepository;
 import com.devroom.auth.domain.OutboxEvent;
 import com.devroom.auth.domain.OutboxRepository;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -45,12 +44,10 @@ class AuthServiceIntegrationTest {
     OutboxRepository outboxRepo;
 
     @Test
-    @Disabled("Open issue 2026-05-14: JWKS-endpointen returnerar Spring default-login-form via " +
-            "TestRestTemplate trots att den ska vara publik. OIDC-discovery (samma /.well-known/-prefix) " +
-            "fungerar. Hypotes: NimbusJwkSetEndpoint-filter init:as inte korrekt i Boot 4.0.6/SAS 7.0.5. " +
-            "Token-endpoint, signup och OIDC-discovery passerar. Återkomm efter Plan 03/04.")
     void jwksEndpointExposesPublicKey() {
-        ResponseEntity<Map> resp = http.getForEntity("/.well-known/jwks.json", Map.class);
+        // SAS 7.0.5 exponerar JWKS på /oauth2/jwks (default), inte /.well-known/jwks.json.
+        // Resource servers ska upptäcka rätt path via discovery-dokumentets jwks_uri-fält.
+        ResponseEntity<Map> resp = http.getForEntity("/oauth2/jwks", Map.class);
 
         assertThat(resp.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(resp.getBody()).containsKey("keys");
