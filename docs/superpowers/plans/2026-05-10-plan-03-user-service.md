@@ -2,11 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
+> **Revision 2026-05-14 (gRPC-starter-pivot):** `net.devh:grpc-server-spring-boot-starter` 3.1.0.RELEASE är fast på Spring Boot 3.2.4 och inkompatibel med vårt parent POM (Boot 4.0.6). Ersatt med Spring:s officiella `org.springframework.grpc:spring-grpc-server-spring-boot-starter` 1.0.3 (BOM `spring-grpc-dependencies` 1.0.3, supports Spring Boot 4.0.x enligt docs.spring.io/spring-grpc/reference/getting-started.html). Konsekvenser nedan: (a) Task 1 POM-snippet uppdaterad, (b) Task 2 byter `grpc.server.port` → `spring.grpc.server.port`, (c) Task 6 byter `@GrpcService` (net.devh) → `@Service` (Spring; auto-discovers `BindableService`-beans), (d) Task 8 byter manuell `ManagedChannelBuilder` → `@LocalGrpcPort` + `GrpcChannelFactory`. Se ADR-0006.
+
 **Goal:** Implementera User Service med teams + users-tabeller, seedade mentor-rader, gRPC-server som exponerar `GetUser` och `ResolveMentions`, samt en stub-MQ-consumer för `user.registered` (RabbitMQ-koppling görs i plan 04). Vid plan-slut kan `grpcurl` anropa både gRPC-metoderna och få korrekta svar för seedade mentorer.
 
-**Architecture:** Spring Boot 4 + JPA + Flyway. gRPC-server via `grpc-spring-boot-starter` (Lognet) som auto-registrerar `@GrpcService`-bönor. Seed-data via Flyway-migration (idempotent INSERT med ON CONFLICT). MQ-consumer-bönan finns men `@Profile("rabbit")` så den inte aktiveras innan plan 04.
+**Architecture:** Spring Boot 4 + JPA + Flyway. gRPC-server via Spring gRPC 1.0.3 (`spring-grpc-server-spring-boot-starter`) som auto-registrerar `BindableService`-beans (alla klasser som extendar proto-genererad `XxxImplBase`). Seed-data via Flyway-migration (idempotent INSERT med ON CONFLICT). MQ-consumer-bönan finns men `@Profile("rabbit")` så den inte aktiveras innan plan 04.
 
-**Tech Stack:** Spring Boot 4, Spring Data JPA, Flyway, Postgres 16, gRPC 1.68 + protobuf 3.25, `net.devh:grpc-spring-boot-starter`, Testcontainers.
+**Tech Stack:** Spring Boot 4.0.6, Spring Data JPA, Flyway, Postgres 16, gRPC 1.81.0 + protobuf 4.34.1, Spring gRPC 1.0.3, Testcontainers.
 
 **Refererar spec:** sektion 3.2, 5.1.
 
@@ -50,6 +52,8 @@ services/user-service/
 
 - [ ] **Step 1: Skapa modul-POM**
 
+> **OBS Spring gRPC-pivot:** versioner för spring-grpc-* kommer från `spring-grpc-dependencies` 1.0.3 BOM som importeras i parent POM (`pom.xml`). BOM:en samexisterar med Spring Boot:s BOM enligt deras docs.
+
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -63,10 +67,6 @@ services/user-service/
 
     <artifactId>user-service</artifactId>
     <name>Devroom User Service</name>
-
-    <properties>
-        <grpc-spring-boot-starter.version>3.1.0.RELEASE</grpc-spring-boot-starter.version>
-    </properties>
 
     <dependencies>
         <dependency>
@@ -100,11 +100,10 @@ services/user-service/
             <scope>runtime</scope>
         </dependency>
 
-        <!-- gRPC server -->
+        <!-- gRPC server (Spring gRPC, version från spring-grpc-dependencies BOM) -->
         <dependency>
-            <groupId>net.devh</groupId>
-            <artifactId>grpc-server-spring-boot-starter</artifactId>
-            <version>${grpc-spring-boot-starter.version}</version>
+            <groupId>org.springframework.grpc</groupId>
+            <artifactId>spring-grpc-server-spring-boot-starter</artifactId>
         </dependency>
         <dependency>
             <groupId>io.grpc</groupId>
@@ -143,9 +142,13 @@ services/user-service/
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>net.devh</groupId>
-            <artifactId>grpc-client-spring-boot-starter</artifactId>
-            <version>${grpc-spring-boot-starter.version}</version>
+            <groupId>org.springframework.grpc</groupId>
+            <artifactId>spring-grpc-client-spring-boot-starter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.grpc</groupId>
+            <artifactId>spring-grpc-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -241,10 +244,6 @@ public class UserServiceApplication {
 server:
   port: 8082
 
-grpc:
-  server:
-    port: 9082
-
 spring:
   application:
     name: user-service
@@ -262,6 +261,9 @@ spring:
     port: 5672
     username: devroom
     password: devroom
+  grpc:
+    server:
+      port: 9082
 
 devroom:
   user:
@@ -482,12 +484,14 @@ import com.devroom.user.domain.User;
 import com.devroom.user.domain.UserRepository;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
-import net.devh.boot.grpc.server.service.GrpcService;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.UUID;
 
-@GrpcService
+// Spring gRPC auto-discoverar BindableService-beans (UserGrpcServiceImplBase implementerar BindableService).
+// Ingen separat @GrpcService-annotation finns i Spring gRPC; @Service räcker.
+@Service
 public class UserGrpcServiceImpl extends UserGrpcServiceGrpc.UserGrpcServiceImplBase {
 
     private final UserRepository repo;
@@ -685,14 +689,13 @@ spring:
     listener:
       simple:
         auto-startup: false  # disable RabbitMQ-listeners under test
+  grpc:
+    server:
+      port: 0  # ephemeral port; injectas via @LocalGrpcPort
 
 devroom:
   user:
     demo-team-id: 11111111-1111-1111-1111-111111111111
-
-grpc:
-  server:
-    port: 0  # random port
 ```
 
 - [ ] **Step 2: Integration test (verifierar gRPC-endpoints + seed-data)**
@@ -702,15 +705,15 @@ package com.devroom.user;
 
 import com.devroom.user.grpc.GetUserRequest;
 import com.devroom.user.grpc.ResolveMentionsRequest;
-import com.devroom.user.grpc.ResolveMentionsResponse;
 import com.devroom.user.grpc.UserGrpcServiceGrpc;
-import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.grpc.client.GrpcChannelFactory;
+import org.springframework.grpc.test.LocalGrpcPort;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -720,7 +723,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest
 @ActiveProfiles("test")
 @Testcontainers
 class UserServiceIntegrationTest {
@@ -738,22 +741,22 @@ class UserServiceIntegrationTest {
         r.add("spring.datasource.password", postgres::getPassword);
     }
 
-    @Value("${grpc.server.port}")
-    int grpcPort;
-
-    private ManagedChannel channel;
-    private UserGrpcServiceGrpc.UserGrpcServiceBlockingStub stub;
-
-    void initStub() {
-        if (stub == null) {
-            channel = ManagedChannelBuilder.forAddress("localhost", grpcPort).usePlaintext().build();
-            stub = UserGrpcServiceGrpc.newBlockingStub(channel);
+    // Stub-beanen är @Lazy så att @LocalGrpcPort hinner resolveras (porten allokeras vid app-start).
+    @TestConfiguration
+    static class StubConfig {
+        @Bean
+        @Lazy
+        UserGrpcServiceGrpc.UserGrpcServiceBlockingStub userStub(
+                GrpcChannelFactory channels, @LocalGrpcPort int port) {
+            return UserGrpcServiceGrpc.newBlockingStub(channels.createChannel("0.0.0.0:" + port));
         }
     }
 
+    @Autowired
+    UserGrpcServiceGrpc.UserGrpcServiceBlockingStub stub;
+
     @Test
     void getUserReturnsSeededMentor() {
-        initStub();
         var resp = stub.getUser(GetUserRequest.newBuilder()
                 .setUserId("22222222-2222-2222-2222-222222222203")
                 .build());
@@ -764,7 +767,6 @@ class UserServiceIntegrationTest {
 
     @Test
     void resolveMentionsFindsMentorsByName() {
-        initStub();
         var resp = stub.resolveMentions(ResolveMentionsRequest.newBuilder()
                 .setTeamId("11111111-1111-1111-1111-111111111111")
                 .addDisplayNames("code-reviewer")
