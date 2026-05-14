@@ -24,25 +24,28 @@
 ## Aktuell branch och status
 
 ```bash
-git branch    # main + plan-02-auth-service (klar, redo för PR)
+git branch    # main + plan-03-user-service (klar, redo för PR)
 git log --oneline | head -5
 ```
 
 **Plan 01 (2026-05-13, mergad PR #2):** parent POM, `proto/user.proto`, `docker-compose.yml` (single file med profiles-strategi), CI workflow, ADR-0001 mikroservice-decomposition. Task 4-6 (auth-starter) ersattes av Spring Authorization Server-pivot 2026-05-12, Task 11 täcks av ADR-0003.
 
-**Plan 02 (2026-05-14, branch `plan-02-auth-service`, 23 commits):** Auth Service implementerad och verifierad end-to-end. Spring Boot 4.0.6 + Spring Authorization Server 7.0.5 med Variant F-config (klienter via `application.yml`-properties + InMemoryRegisteredClientRepository) och Variant C-signup (JSON-API, ingen Thymeleaf). 5/5 Testcontainers-tester gröna mot Postgres 16-alpine.
+**Plan 02 (2026-05-14, mergad PR #3):** Auth Service implementerad och verifierad end-to-end. Spring Boot 4.0.6 + Spring Authorization Server 7.0.5 med klienter via properties + InMemoryRegisteredClientRepository och JSON-baserat signup-API (ingen Thymeleaf). 5/5 Testcontainers-tester gröna mot Postgres 16-alpine. Sju Boot 4-paket-rename dokumenterade i commits + plan-revisionsbanners.
 
-- 2 Flyway-migrationer (V1 users + authorities, V4 outbox_events)
-- 5 config-klasser (KeyConfig RSA-keypair, SecurityBeansConfig PasswordEncoder + ObjectMapper, AuthorizationServerConfig, DefaultSecurityConfig, TokenCustomizerConfig team_id-claim)
-- DevroomUser-entitet + UserDetailsService + SignupService (transactional outbox-pattern)
-- OutboxPublisher `@Scheduled` stub — loggar tills RabbitMQ kopplas in i Plan 04
-- ADR-0002 (transactional outbox), ADR-0005 (inga cross-DB FK)
+**Plan 03 (2026-05-14, branch `plan-03-user-service`, 11 commits):** User Service implementerad med gRPC-server, JPA-persistens och stub-MQ-consumer. 2/2 Testcontainers-tester gröna.
 
-Sju Boot 4-paket-rename fångades under arbetet och är dokumenterade i commits + plan-revisionsbanners: `OAuth2AuthorizationServerConfigurer` flyttad till `spring-security-config`, `OAuth2TokenType` flyttad till SAS-paketet, Flyway auto-config kräver `spring-boot-starter-flyway`, `TestRestTemplate` i `spring-boot-resttestclient` + `spring-boot-restclient`, `@ServiceConnection` i separat `spring-boot-testcontainers`, `@AutoConfigureTestRestTemplate` opt-in, `ObjectMapper`-bean inte auto-konfigurerad vid webmvc-only setup.
+- Spring gRPC-pivot: bytte från `net.devh:grpc-spring-boot-starter` (fast på Boot 3.2.4) till officiella `org.springframework.grpc:spring-grpc-server-spring-boot-starter` 1.0.3 (Boot 4.0.x-kompatibel). Dokumenterat i ADR-0006.
+- 2 Flyway-migrationer (V1 teams + users, V2 seed-data med demo-team och 4 mentor-personligheter på hårdkodade UUIDs)
+- `UserGrpcServiceImpl` exponerar `GetUser` + `ResolveMentions`; auto-discovers av Spring gRPC via `BindableService`-interface, ingen `@GrpcService`-annotation behövs
+- `UserRegisteredHandler` med idempotent `existsByUserId`-koll + `@Transactional`; `UserRegisteredConsumer` med `@Profile("rabbit")` så den inte är aktiv förrän Plan 04
+- Integration test använder Spring gRPC:s `@LocalGrpcPort` + `GrpcChannelFactory` (paket: `org.springframework.boot.grpc.test.autoconfigure.LocalGrpcPort`, inte `org.springframework.grpc.test`)
+- `spring-grpc-dependencies` 1.0.3 BOM importerad i parent POM; samexisterar med Spring Boot:s BOM enligt deras docs
+
+Återupplevd Boot 4-gotcha: enbart `flyway-core` triggar inte Flyway auto-config — `spring-boot-starter-flyway` krävs (samma fix som auth-service i Plan 02).
 
 **Compose-strategi:** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]` så att `docker compose up` bara startar infra som default.
 
-**Nästa steg:** Merga `plan-02-auth-service` till `main`, sedan ny branch `plan-03-user-service` (User Service med gRPC `GetUser` + `ResolveMentions`, RabbitMQ-consumer för `user.registered` från outbox).
+**Nästa steg:** Merga `plan-03-user-service` till `main`, sedan ny branch `plan-04-rabbitmq-wiring` (koppla Auth Service `OutboxPublisher` skarpt mot RabbitMQ + aktivera User Service:s `UserRegisteredConsumer` via `rabbit`-profil; end-to-end-test av outbox-flödet).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
@@ -50,7 +53,8 @@ Sju Boot 4-paket-rename fångades under arbetet och är dokumenterade i commits 
 |---|---|
 | `docs/superpowers/specs/2026-05-10-devroom-design.md` | Sanningskälla för arkitektur, alla 15 sektioner |
 | `docs/adr/0003-oauth2-stack.md` | Varför Spring OAuth2 över Kong, Spring Web BFF, PEM-filer — 8 alternativ vägda |
-| `docs/superpowers/plans/2026-05-10-plan-02-auth-service.md` | Nästa implementations-plan (Spring Authorization Server) |
+| `docs/adr/0006-grpc-starter-spring-grpc.md` | Varför Spring gRPC 1.0.3 ersätter `net.devh` |
+| `docs/superpowers/plans/2026-05-10-plan-04-rabbitmq-wiring.md` | Nästa implementations-plan (RabbitMQ end-to-end) |
 | `docs/superpowers/plans/2026-05-10-plan-06-gateway.md` | Spring Cloud Gateway med TokenRelay |
 
 ## Workflow-regler
@@ -77,3 +81,4 @@ Sju Boot 4-paket-rename fångades under arbetet och är dokumenterade i commits 
 - **ADR-0003** Spring OAuth2-stack (se filen för full motivering, 8 alternativ).
 - **ADR-0004** gRPC för intern read-trafik, REST för writes.
 - **ADR-0005** Inga foreign keys över databas-gränser.
+- **ADR-0006** Spring gRPC 1.0.3 (officiell Spring-portfolio) istället för `net.devh:grpc-spring-boot-starter` (fast på Boot 3.2.4).
