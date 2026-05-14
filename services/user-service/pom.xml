@@ -32,9 +32,11 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- Boot 4.x: Flyway auto-config flyttat till spring-boot-flyway (transitiv via -starter-flyway).
+             Att bara dra flyway-core triggar inte auto-config → migrations körs inte. -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
