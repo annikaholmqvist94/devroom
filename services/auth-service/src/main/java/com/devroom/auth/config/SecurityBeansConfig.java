@@ -1,5 +1,6 @@
 package com.devroom.auth.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
@@ -20,5 +21,12 @@ public class SecurityBeansConfig {
         // DelegatingPasswordEncoder prefixar hashen med algoritm-id (t.ex. "{bcrypt}..."),
         // så Spring Security kan verifiera mot rätt algoritm utan att låsa fast valet.
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    @Bean
+    public ObjectMapper objectMapper() {
+        // Boot 4 auto-konfigurerar inte ObjectMapper vid webmvc-only setup — deklareras explicit
+        // för SignupService:s outbox-payload-serialisering.
+        return new ObjectMapper();
     }
 }

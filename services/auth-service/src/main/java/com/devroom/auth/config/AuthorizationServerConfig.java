@@ -10,17 +10,19 @@ import org.springframework.security.config.annotation.web.configurers.oauth2.ser
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint;
 import org.springframework.security.web.util.matcher.MediaTypeRequestMatcher;
-import org.springframework.security.web.util.matcher.RequestMatcher;
 
 /**
- * Filter chain för Spring Authorization Server-endpoints (/oauth2/authorize, /oauth2/token,
- * /oauth2/introspect, /oauth2/revoke, /userinfo, /.well-known/*).
+ * Filter chain för Spring Authorization Server-endpoints (/oauth2/*, /userinfo, /connect/*, /.well-known/*).
  *
  * Variant F: ingen RegisteredClientRepository-bean här — Boot auto-konfigurerar
  * InMemoryRegisteredClientRepository från application.yml-properties.
  *
- * SAS 7.0.5 API: använder `new OAuth2AuthorizationServerConfigurer()` (public konstruktor).
- * Den statiska `authorizationServer()`-fabriken visas i nyare SAS-samples men finns inte i 7.0.5.
+ * OPEN ISSUE (2026-05-14): JWKS-endpointen returnerar Spring default-login-form HTML istället för
+ * JWKS JSON via TestRestTemplate-anrop. OIDC-discovery (samma /.well-known/-prefix) fungerar.
+ * Hypoteser: SAS-configurator init:ar inte NimbusJwkSetEndpoint-filtret korrekt i Boot 4.0.6,
+ * eller @Order/securityMatcher-conflict mellan denna chain och DefaultSecurityConfig.
+ * Token-endpoint, signup, OIDC-discovery fungerar — bara JWKS är problematisk.
+ * Plan: återkomm efter Plan 03/04 när vi vet mer om SAS-resource-server-integration.
  */
 @Configuration
 public class AuthorizationServerConfig {
@@ -29,19 +31,12 @@ public class AuthorizationServerConfig {
     @Order(1)
     public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
         OAuth2AuthorizationServerConfigurer configurer = new OAuth2AuthorizationServerConfigurer();
-        RequestMatcher endpointsMatcher = configurer.getEndpointsMatcher();
 
         http
-                // Begränsa denna chain till SAS-endpoints — andra requests fångas av Task 10:s chain.
-                .securityMatcher(endpointsMatcher)
-                .with(configurer, c ->
-                        // OIDC: aktiverar /userinfo + /.well-known/openid-configuration.
-                        c.oidc(Customizer.withDefaults())
-                )
-                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+                .securityMatcher("/.well-known/**", "/oauth2/**", "/userinfo", "/connect/**", "/login/oauth2/**")
+                .with(configurer, c -> c.oidc(Customizer.withDefaults()))
+                .csrf(csrf -> csrf.ignoringRequestMatchers("/oauth2/**", "/.well-known/**"))
                 .exceptionHandling(exceptions ->
-                        // Browser-träffar (text/html) på /oauth2/authorize utan session → redirect till /login.
-                        // Spring default-login-form servas där (ingen Thymeleaf-vy, Variant C).
                         exceptions.defaultAuthenticationEntryPointFor(
                                 new LoginUrlAuthenticationEntryPoint("/login"),
                                 new MediaTypeRequestMatcher(MediaType.TEXT_HTML)
