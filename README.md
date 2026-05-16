@@ -6,18 +6,17 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md).
 
 ## Status
 
-Under utveckling — Plan 03 av 10 klar. Full README skrivs i Plan 10.
+Under utveckling — Plan 04 av 10 klar. Full README skrivs i Plan 10.
 
 | # | Komponent | Status |
 |---|---|---|
 | 1 | Auth Service (Spring Authorization Server 7.0.5) | Plan 02 klar 2026-05-14 |
 | 2 | User Service (Spring gRPC 1.0.3 + JPA) | Plan 03 klar 2026-05-14 |
-| 3 | Message Service | Plan 05 kommande |
-| 4 | Gateway (Spring Cloud Gateway) | Plan 06 kommande |
-| 5 | Bot Service (Nordic Dev Mentor wrapper) | Plan 07 kommande |
-| 6 | Frontend (Next.js) | Plan 08 kommande |
-
-RabbitMQ-wiring av `user.registered`-flödet sker i Plan 04.
+| 3 | RabbitMQ-wiring (`user.registered`-flödet) | Plan 04 klar 2026-05-16 |
+| 4 | Message Service | Plan 05 kommande |
+| 5 | Gateway (Spring Cloud Gateway) | Plan 06 kommande |
+| 6 | Bot Service (Nordic Dev Mentor wrapper) | Plan 07 kommande |
+| 7 | Frontend (Next.js) | Plan 08 kommande |
 
 ## Quick start
 
