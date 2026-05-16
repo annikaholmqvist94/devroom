@@ -4,12 +4,12 @@ import com.devroom.auth.domain.DevroomUser;
 import com.devroom.auth.domain.DevroomUserRepository;
 import com.devroom.auth.domain.OutboxEvent;
 import com.devroom.auth.domain.OutboxRepository;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -29,14 +29,14 @@ public class SignupService {
     private final DevroomUserRepository userRepo;
     private final OutboxRepository outboxRepo;
     private final PasswordEncoder passwordEncoder;
-    private final ObjectMapper mapper;
+    private final JsonMapper mapper;
     private final UUID demoTeamId;
 
     public SignupService(
             DevroomUserRepository userRepo,
             OutboxRepository outboxRepo,
             PasswordEncoder passwordEncoder,
-            ObjectMapper mapper,
+            JsonMapper mapper,
             @Value("${devroom.auth.demo-team-id}") String demoTeamId) {
         this.userRepo = userRepo;
         this.outboxRepo = outboxRepo;
@@ -70,9 +70,8 @@ public class SignupService {
         payload.put("team_id", demoTeamId.toString());
         try {
             return mapper.writeValueAsString(payload);
-        } catch (JsonProcessingException e) {
-            // Jackson kastar bara JsonProcessingException om payload-strukturen är trasig —
-            // för en Map<String,String> händer det inte i praktiken.
+        } catch (JacksonException e) {
+            // För en Map<String,String> händer detta inte i praktiken.
             throw new IllegalStateException("Failed to serialize outbox payload", e);
         }
     }
