@@ -16,6 +16,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: devroom
+    password: devroom
   security:
     oauth2:
       authorizationserver:
