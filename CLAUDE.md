@@ -32,20 +32,19 @@ git log --oneline | head -5
 
 **Plan 02 (2026-05-14, mergad PR #3):** Auth Service implementerad och verifierad end-to-end. Spring Boot 4.0.6 + Spring Authorization Server 7.0.5 med klienter via properties + InMemoryRegisteredClientRepository och JSON-baserat signup-API (ingen Thymeleaf). 5/5 Testcontainers-tester gröna mot Postgres 16-alpine. Sju Boot 4-paket-rename dokumenterade i commits + plan-revisionsbanners.
 
-**Plan 03 (2026-05-14, branch `plan-03-user-service`, 11 commits):** User Service implementerad med gRPC-server, JPA-persistens och stub-MQ-consumer. 2/2 Testcontainers-tester gröna.
+**Plan 03 (2026-05-14, mergad PR #4):** User Service implementerad med gRPC-server, JPA-persistens och stub-MQ-consumer. 2/2 Testcontainers-tester gröna. Spring gRPC-pivot från `net.devh` till `org.springframework.grpc:spring-grpc-server-spring-boot-starter` 1.0.3 (ADR-0006). 2 Flyway-migrationer (V1 teams + users, V2 seed med 4 mentor-personligheter). `UserGrpcServiceImpl` auto-discovers via `BindableService`. `UserRegisteredConsumer` gated på `@Profile("rabbit")` (aktiveras i Plan 04).
 
-- Spring gRPC-pivot: bytte från `net.devh:grpc-spring-boot-starter` (fast på Boot 3.2.4) till officiella `org.springframework.grpc:spring-grpc-server-spring-boot-starter` 1.0.3 (Boot 4.0.x-kompatibel). Dokumenterat i ADR-0006.
-- 2 Flyway-migrationer (V1 teams + users, V2 seed-data med demo-team och 4 mentor-personligheter på hårdkodade UUIDs)
-- `UserGrpcServiceImpl` exponerar `GetUser` + `ResolveMentions`; auto-discovers av Spring gRPC via `BindableService`-interface, ingen `@GrpcService`-annotation behövs
-- `UserRegisteredHandler` med idempotent `existsByUserId`-koll + `@Transactional`; `UserRegisteredConsumer` med `@Profile("rabbit")` så den inte är aktiv förrän Plan 04
-- Integration test använder Spring gRPC:s `@LocalGrpcPort` + `GrpcChannelFactory` (paket: `org.springframework.boot.grpc.test.autoconfigure.LocalGrpcPort`, inte `org.springframework.grpc.test`)
-- `spring-grpc-dependencies` 1.0.3 BOM importerad i parent POM; samexisterar med Spring Boot:s BOM enligt deras docs
+**Plan 04 (2026-05-16, branch `plan-04-rabbitmq-wiring`, 8 commits):** RabbitMQ end-to-end-flöde aktivt. Auth Service:s `OutboxPublisher` skickar `user.registered` på exchange `devroom.events` med persistent delivery; User Service consumer (utan profile-gating) plockar från durable queue `user-service.user-registered` med DLQ till `devroom.events.dlx`. Listener-retry: 3 försök med exponentiell backoff (1s→2s→4s) innan dead-letter.
 
-Återupplevd Boot 4-gotcha: enbart `flyway-core` triggar inte Flyway auto-config — `spring-boot-starter-flyway` krävs (samma fix som auth-service i Plan 02).
+- 9/9 tester gröna efter plan-slut: `OutboxToRabbitIntegrationTest` (Postgres + RabbitMQ Testcontainers, observer-queue), `UserRegisteredHandlerIdempotencyTest`.
+- Jackson 3-migration cross-service: Boot 4 auto-config exponerar `tools.jackson.databind.json.JsonMapper`, inte `com.fasterxml.jackson.databind.ObjectMapper`. API-byten: `asText()` → `asString()`, `JsonProcessingException` → `JacksonException` (numera unchecked).
+- RabbitMQ 4-gotcha: feature-flaggan `transient_nonexcl_queues` disablad by default. Använd `QueueBuilder.durable(...)` för test-observer-queues.
+- Test-startup-skydd: `application-test.yml` (user-service) sätter `spring.rabbitmq.listener.simple.auto-startup=false` så `UserRegisteredConsumer` inte connectar mot en frånvarande broker under existing integration-tester.
+- Manuell smoke-test verifierad: HTTP `/signup` → `users` i `userdb` med matchande user_id, RabbitMQ management API visade `publish_in=1` på `devroom.events` + `delivered=1` på huvudkön.
 
 **Compose-strategi:** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]` så att `docker compose up` bara startar infra som default.
 
-**Nästa steg:** Merga `plan-03-user-service` till `main`, sedan ny branch `plan-04-rabbitmq-wiring` (koppla Auth Service `OutboxPublisher` skarpt mot RabbitMQ + aktivera User Service:s `UserRegisteredConsumer` via `rabbit`-profil; end-to-end-test av outbox-flödet).
+**Nästa steg:** Merga `plan-04-rabbitmq-wiring` till `main`, sedan ny branch `plan-05-message-service` (Message Service med POST/GET messages, gRPC-klient mot User, RabbitMQ-publisher för `message.published`).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
