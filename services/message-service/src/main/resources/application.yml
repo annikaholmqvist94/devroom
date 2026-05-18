@@ -1,0 +1,52 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: message-service
+  datasource:
+    url: jdbc:postgresql://localhost:5434/messagedb
+    username: dbuser
+    password: dbpass
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: devroom
+    password: devroom
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Auth Service publicerar sin signing key som JWKS. Resource Server cachar
+          # nyckeln lazily vid första request — ingen publik PEM-fil behöver bo lokalt.
+          # K8s overrides:as till intern-DNS via AUTH_SERVICE_JWKS_URI.
+          jwk-set-uri: ${AUTH_SERVICE_JWKS_URI:http://localhost:8081/oauth2/jwks}
+          # Måste matcha 'iss'-claim exakt — fungerar som tenant-skydd.
+          issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
+  grpc:
+    client:
+      channels:
+        # Logiskt id 'user-service' slås upp i Task 6 via channels.createChannel("user-service").
+        # PLAINTEXT internt i dev; K8s sätter TLS via SSL-bundle.
+        user-service:
+          address: ${USER_SERVICE_GRPC:static://localhost:9082}
+          negotiation-type: PLAINTEXT
+
+devroom:
+  message:
+    # Demo-team som alla seedade kanaler och mentor-users tillhör (matchar user-service seed V2).
+    demo-team-id: 11111111-1111-1111-1111-111111111111
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
