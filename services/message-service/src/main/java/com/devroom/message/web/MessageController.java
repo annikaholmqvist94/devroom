@@ -1,6 +1,7 @@
 package com.devroom.message.web;
 
 import com.devroom.message.application.PostMessageService;
+import com.devroom.message.application.ServiceTokenSenderResolver;
 import com.devroom.message.domain.Message;
 import com.devroom.message.domain.MessageRepository;
 import com.devroom.message.web.MessageDtos.MessageResponse;
@@ -26,10 +27,14 @@ public class MessageController {
 
     private final PostMessageService postService;
     private final MessageRepository repo;
+    private final ServiceTokenSenderResolver senderResolver;
 
-    public MessageController(PostMessageService postService, MessageRepository repo) {
+    public MessageController(PostMessageService postService,
+                              MessageRepository repo,
+                              ServiceTokenSenderResolver senderResolver) {
         this.postService = postService;
         this.repo = repo;
+        this.senderResolver = senderResolver;
     }
 
     @PostMapping
@@ -52,11 +57,7 @@ public class MessageController {
 
     private UUID resolveSender(Jwt jwt, PostMessageRequest req) {
         if (isServiceToken(jwt)) {
-            if (req.asUserId() == null) {
-                throw new IllegalArgumentException("Service token requires as_user_id");
-            }
-            // Task 11 lägger till gRPC-koll mot User Service för att verifiera is_system=true.
-            return req.asUserId();
+            return senderResolver.verifyAndResolve(req.asUserId());
         }
         return UUID.fromString(jwt.getSubject());
     }
