@@ -14,9 +14,11 @@
 >       oauth2:
 >         resourceserver:
 >           jwt:
->             jwk-set-uri: ${AUTH_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+>             jwk-set-uri: ${AUTH_SERVICE_JWKS_URI:http://localhost:8081/oauth2/jwks}
 >             issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
 >   ```
+>
+>   *Korrigering 2026-05-18:* JWKS-pathen är `/oauth2/jwks` (Spring Authorization Server default), inte `/.well-known/jwks.json`. Bekräftat i `auth-service/.../AuthorizationServerConfig.java`.
 >
 > - I `SecurityConfig.java`, använd:
 >
