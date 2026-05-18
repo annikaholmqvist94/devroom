@@ -6,14 +6,14 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md).
 
 ## Status
 
-Under utveckling — Plan 04 av 10 klar. Full README skrivs i Plan 10.
+Under utveckling — Plan 05 av 10 klar. Full README skrivs i Plan 10.
 
 | # | Komponent | Status |
 |---|---|---|
 | 1 | Auth Service (Spring Authorization Server 7.0.5) | Plan 02 klar 2026-05-14 |
 | 2 | User Service (Spring gRPC 1.0.3 + JPA) | Plan 03 klar 2026-05-14 |
 | 3 | RabbitMQ-wiring (`user.registered`-flödet) | Plan 04 klar 2026-05-16 |
-| 4 | Message Service | Plan 05 kommande |
+| 4 | Message Service (POST/GET, gRPC-klient, `message.published`) | Plan 05 klar 2026-05-18 |
 | 5 | Gateway (Spring Cloud Gateway) | Plan 06 kommande |
 | 6 | Bot Service (Nordic Dev Mentor wrapper) | Plan 07 kommande |
 | 7 | Frontend (Next.js) | Plan 08 kommande |
@@ -21,10 +21,11 @@ Under utveckling — Plan 04 av 10 klar. Full README skrivs i Plan 10.
 ## Quick start
 
 ```bash
-docker compose up -d                           # Postgres + RabbitMQ (services tillkommer via 'profiles: [full]')
-mvn -B verify                                  # build + test alla moduler
-mvn -pl services/auth-service spring-boot:run  # kör Auth Service på :8081 (HTTP)
-mvn -pl services/user-service spring-boot:run  # kör User Service på :8082 (HTTP) + :9082 (gRPC)
+docker compose up -d                              # Postgres + RabbitMQ (services tillkommer via 'profiles: [full]')
+mvn -B verify                                     # build + test alla moduler
+mvn -pl services/auth-service spring-boot:run     # kör Auth Service på :8081 (HTTP)
+mvn -pl services/user-service spring-boot:run     # kör User Service på :8082 (HTTP) + :9082 (gRPC)
+mvn -pl services/message-service spring-boot:run  # kör Message Service på :8083 (HTTP)
 ```
 
 ## Arkitekturbeslut

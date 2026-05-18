@@ -24,7 +24,7 @@
 ## Aktuell branch och status
 
 ```bash
-git branch    # main + plan-03-user-service (klar, redo för PR)
+git branch    # main + plan-05-message-service (klar, redo för PR)
 git log --oneline | head -5
 ```
 
@@ -42,9 +42,20 @@ git log --oneline | head -5
 - Test-startup-skydd: `application-test.yml` (user-service) sätter `spring.rabbitmq.listener.simple.auto-startup=false` så `UserRegisteredConsumer` inte connectar mot en frånvarande broker under existing integration-tester.
 - Manuell smoke-test verifierad: HTTP `/signup` → `users` i `userdb` med matchande user_id, RabbitMQ management API visade `publish_in=1` på `devroom.events` + `delivered=1` på huvudkön.
 
+**Plan 05 (2026-05-18, branch `plan-05-message-service`, 14 commits):** Message Service implementerad med POST/GET endpoints, gRPC-klient mot User Service och RabbitMQ-publisher för `message.published`-events. 6/6 tester gröna (3 Testcontainers-integration + 3 MentionParser-unit). `mvn -B clean verify` på hela repot grön på 37s.
+
+- Spring Resource Server-säkerhet: validerar JWT via JWKS från Auth Service, scope-baserad authz (`profile` eller `bot:write`) på `POST /messages`. Första HTTP-yta i repot som validerar JWT.
+- Mention-flöde: regex `@([a-z0-9-]+)` → gRPC `ResolveMentions` mot User Service → JSONB-array i `messages.mentions`. Inline-lagring eftersom 95% av reads vill ha mentions med (ADR-0005 hindrar FK ändå).
+- JSONB-mappning: Hibernate 7:s inbyggda `@JdbcTypeCode(SqlTypes.JSON)` på `List<MentionInfo>`. Ingen `hibernate-types-60` eller `hypersistence-utils` — Jackson 3 på classpath räcker.
+- gRPC-klient: Spring gRPC 1.0.3 bean-baserad konfiguration via `GrpcChannelFactory.createChannel("user-service")` (inte `@GrpcClient`-annotation från `net.devh`). `MentionResolver` och `ServiceTokenSenderResolver` wrappar protobuf-typer så domän-logiken inte ser dem.
+- as_user_id-säkerhetscheck: när scope `bot:write` används verifieras `as_user_id` via gRPC `GetUser` att peka på system-user. Hindrar confused-deputy från Bot Service.
+- Atomicitet-kompromiss: DB-write + Rabbit-publish i samma `@Transactional` (ingen outbox). ADR-0008 placeholder om vi senare behöver exactly-once.
+- Boot 4-paket-rename: `@AutoConfigureMockMvc` flyttat ur `spring-boot-test-autoconfigure` till ny artifact `spring-boot-webmvc-test`, nytt paket `org.springframework.boot.webmvc.test.autoconfigure`. Lade också till `-parameters` compiler-flag i parent POM (krävs för `@RequestParam UUID channelId`-mappning).
+- ADR-0004 (gRPC vs REST) skriven: fyller den planerade luckan som ADR-0001, 0005 och 0006 alla framåt-refererade till.
+
 **Compose-strategi:** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]` så att `docker compose up` bara startar infra som default.
 
-**Nästa steg:** Merga `plan-04-rabbitmq-wiring` till `main`, sedan ny branch `plan-05-message-service` (Message Service med POST/GET messages, gRPC-klient mot User, RabbitMQ-publisher för `message.published`).
+**Nästa steg:** Merga `plan-05-message-service` till `main`, sedan ny branch `plan-06-gateway` (Spring Cloud Gateway med OAuth2 Authorization Code + PKCE-flöde, server-side session, TokenRelay-filter mot nedströms services).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
