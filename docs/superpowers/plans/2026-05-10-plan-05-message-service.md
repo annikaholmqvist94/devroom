@@ -14,9 +14,11 @@
 >       oauth2:
 >         resourceserver:
 >           jwt:
->             jwk-set-uri: ${AUTH_SERVICE_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+>             jwk-set-uri: ${AUTH_SERVICE_JWKS_URI:http://localhost:8081/oauth2/jwks}
 >             issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
 >   ```
+>
+>   *Korrigering 2026-05-18:* JWKS-pathen är `/oauth2/jwks` (Spring Authorization Server default), inte `/.well-known/jwks.json`. Bekräftat i `auth-service/.../AuthorizationServerConfig.java`.
 >
 > - I `SecurityConfig.java`, använd:
 >
@@ -37,6 +39,16 @@
 >
 > - JwtClaims-extraktion: använd `Authentication.getPrincipal()` som castar till `Jwt`. Läs `team_id`-claim via `jwt.getClaimAsString("team_id")`. För service-token: `jwt.getClaimAsStringList("scope")` innehåller "bot:write".
 > - Task 11 (as_user_id-säkerhetscheck): logik oförändrad men implementationen läser `as_user_id` från body och scope `bot:write` från Jwt-principalen istället för `JwtClaims.isService()`.
+>
+> **Revision 2026-05-18 — stack-drift sedan plan 02-04:** Pivoterna i plan 02-04 har gjort fler delar av denna plan stale än bara säkerheten. Lägger till revisionsbanners per task där det krävs:
+>
+> - **Task 1 (deps):** Ersätt `com.devroom:auth-starter` (har aldrig byggts, ersatt av Spring Authorization Server-pivoten) med `spring-boot-starter-oauth2-resource-server`. Ersätt `net.devh:grpc-client-spring-boot-starter:3.1.0.RELEASE` med `org.springframework.grpc:spring-grpc-client-spring-boot-starter` (parent BOM 1.0.3, ADR-0006). Ersätt `com.vladmihalcea:hibernate-types-60` med `@JdbcTypeCode(SqlTypes.JSON)` (Hibernate 7 inbyggt, ingen extra dependency).
+> - **Task 4 (Message-entitet):** Använd `@JdbcTypeCode(SqlTypes.JSON)` istället för `@Type(JsonType.class)`. Jackson 3 på classpath räcker.
+> - **Task 6 (MentionResolver):** Ingen `@GrpcClient`-annotation. Exponera `UserGrpcServiceBlockingStub` som `@Bean` i `GrpcClientConfig` via `GrpcChannelFactory.createChannel("user-service")`. Konfigurera via `spring.grpc.client.channels.user-service.address` i `application.yml`.
+> - **Task 7 (Publisher):** Jackson 3-paket — `tools.jackson.databind.json.JsonMapper`, inte `com.fasterxml.jackson.databind.ObjectMapper`. `JsonProcessingException` blir `JacksonException` (unchecked i Jackson 3, så try/catch kan tas bort).
+> - **Task 9 (Security):** Helt ersatt enligt 2026-05-12-bannern ovan. Inga `JwtValidator`/`JwtAuthenticationFilter`/`KeyLoader`-klasser. `application.yml` får `spring.security.oauth2.resourceserver.jwt.{jwk-set-uri,issuer-uri}`.
+> - **Task 10-11 (Controllers):** `JwtClaims` finns inte. Cast `authentication.getPrincipal()` till `org.springframework.security.oauth2.jwt.Jwt`. Service-detektering: `jwt.getClaimAsStringList("scope").contains("bot:write")`. Subject: `jwt.getSubject()`. team_id: `jwt.getClaimAsString("team_id")`.
+> - **Task 12 (Tester):** In-process gRPC-server-pattern återanvänder samma mönster som user-service redan har i sina tester. `application-test.yml` sätter `spring.rabbitmq.listener.simple.auto-startup=false` (samma defensiva mönster som plan 04).
 
 **Goal:** Implementera Message Service: `channels` + `messages`-tabeller (med trådar via `parent_message_id` och JSONB-mentions), POST/GET REST-endpoints, gRPC-klient mot User Service för mention-resolution, RabbitMQ-publisher för `message-published`-events. Vid plan-slut kan POST /messages skapa ett meddelande, resolva mentions, lagra det med korrekt mentions-array, och publicera ett event som senare konsumeras av Bot Service.
 
