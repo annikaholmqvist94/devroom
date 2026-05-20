@@ -6,7 +6,7 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md).
 
 ## Status
 
-Under utveckling — Plan 05 av 10 klar. Full README skrivs i Plan 10.
+Under utveckling — Plan 06 av 10 klar. Full README skrivs i Plan 10.
 
 | # | Komponent | Status |
 |---|---|---|
@@ -14,7 +14,7 @@ Under utveckling — Plan 05 av 10 klar. Full README skrivs i Plan 10.
 | 2 | User Service (Spring gRPC 1.0.3 + JPA) | Plan 03 klar 2026-05-14 |
 | 3 | RabbitMQ-wiring (`user.registered`-flödet) | Plan 04 klar 2026-05-16 |
 | 4 | Message Service (POST/GET, gRPC-klient, `message.published`) | Plan 05 klar 2026-05-18 |
-| 5 | Gateway (Spring Cloud Gateway) | Plan 06 kommande |
+| 5 | Gateway (Spring Cloud Gateway 5.0.1 WebMVC, OAuth2 Authorization Code + TokenRelay) | Plan 06 klar 2026-05-20 |
 | 6 | Bot Service (Nordic Dev Mentor wrapper) | Plan 07 kommande |
 | 7 | Frontend (Next.js) | Plan 08 kommande |
 
@@ -26,6 +26,8 @@ mvn -B verify                                     # build + test alla moduler
 mvn -pl services/auth-service spring-boot:run     # kör Auth Service på :8081 (HTTP)
 mvn -pl services/user-service spring-boot:run     # kör User Service på :8082 (HTTP) + :9082 (gRPC)
 mvn -pl services/message-service spring-boot:run  # kör Message Service på :8083 (HTTP)
+GATEWAY_CLIENT_SECRET=dev-gateway-secret-change-me \
+  mvn -pl services/gateway spring-boot:run        # kör Gateway/BFF på :8080 (browser-entry för frontend)
 ```
 
 ## Arkitekturbeslut
@@ -38,3 +40,4 @@ Se [docs/adr/](docs/adr/) för fullständig lista. I korthet:
 - **ADR-0004** — gRPC för intern read-trafik, REST för writes
 - **ADR-0005** — inga foreign keys över databas-gränser, eventual consistency via events
 - **ADR-0006** — Spring gRPC 1.0.3 (officiell Spring-portfolio) som gRPC-starter, inte den community-drivna `net.devh`
+- **ADR-0007** — Spring Cloud Gateway WebMVC-variant (inte WebFlux) för konsistens med resten av services — servlet-stack, en `SecurityFilterChain`-mental-modell i hela repot

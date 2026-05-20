@@ -53,9 +53,21 @@ git log --oneline | head -5
 - Boot 4-paket-rename: `@AutoConfigureMockMvc` flyttat ur `spring-boot-test-autoconfigure` till ny artifact `spring-boot-webmvc-test`, nytt paket `org.springframework.boot.webmvc.test.autoconfigure`. Lade också till `-parameters` compiler-flag i parent POM (krävs för `@RequestParam UUID channelId`-mappning).
 - ADR-0004 (gRPC vs REST) skriven: fyller den planerade luckan som ADR-0001, 0005 och 0006 alla framåt-refererade till.
 
+**Plan 06 (2026-05-20, branch `plan-06-gateway`, 10 commits):** Gateway implementerad som Spring Cloud Gateway 5.0.1 med OAuth2 Authorization Code-flöde mot Auth Service och TokenRelay-filter mot nedströms-services. 4/4 tester gröna (~2.2s). `mvn -B clean verify` på hela repot grön på 44s (17 tester totalt).
+
+- **WebMVC-pivot (ADR-0007):** plan-texten specade webflux-varianten, men sedan Gateway 4.1 finns en webmvc-variant med feature-paritet (inkl. TokenRelay). Pivot till `spring-cloud-starter-gateway-server-webmvc` för konsistens med Auth/User/Message — en mental-modell (`SecurityFilterChain` + `HttpSecurity`) i hela repot, inga reactive paradigm-skiften.
+- Spring Cloud BOM 2025.1.1 (Aurora) — första Spring Cloud-tåget byggt på Spring Framework 7 + Spring Boot 4. Importerat EFTER spring-boot-dependencies så vår Boot 4.0.6 övertrumfar BOM:ens default 4.0.2.
+- YAML-driven routing: 3 routes (`/api/users/**`, `/api/messages/**`, `/signup/**`) med `StripPrefix=1` + `TokenRelay`-filter. Signup är publik (TokenRelay skippas).
+- SecurityFilterChain: `oauth2Login()` + `oauth2Client()` aktiverar Authorization Code-flödet och `OAuth2AuthorizedClientManager`-beanen som TokenRelay behöver. CSRF disabled (BFF-mönster). CORS via `CorsConfigurationSource`-bean (webmvc-varianten har ingen dokumenterad YAML-CORS-key).
+- `/api/me` RouterFunction returnerar 200+JSON eller 401 (NOT redirect) så frontend kan använda 401 som "ej inloggad"-signal istället för att fastna i Authorization Code-flödet.
+- Testverktyg: WireMock 3.13.2 (shaded) mockar Auth Service:s OIDC discovery i integration-test. Spring Security kontaktar `issuer-uri` vid bean-skapande, så WireMock måste startas i `static {}`-block FÖRE `@DynamicPropertySource`. TestRestTemplate (Boot 4-paket: `org.springframework.boot.resttestclient.TestRestTemplate`) + Java HttpClient med `Redirect.NEVER` för 302-testet (TestRestTemplate följer redirects by default).
+- Boot 4-modularisering: `TestRestTemplate` flyttat ur `-starter-test` till `spring-boot-resttestclient`; `RestTemplateBuilder` till `spring-boot-restclient`. Båda explicit deklarerade i gateway/pom.xml.
+- ADR-0007 skriven: Gateway WebMVC vs WebFlux med trade-offs och future-paths.
+- Task 8 (manuell smoke-test) deferred — kräver Auth Service + Postgres uppe + browser för Authorization Code-flödet. Stegen finns i plan 06.
+
 **Compose-strategi:** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]` så att `docker compose up` bara startar infra som default.
 
-**Nästa steg:** Merga `plan-05-message-service` till `main`, sedan ny branch `plan-06-gateway` (Spring Cloud Gateway med OAuth2 Authorization Code + PKCE-flöde, server-side session, TokenRelay-filter mot nedströms services).
+**Nästa steg:** Merga `plan-06-gateway` till `main`, sedan ny branch `plan-07-bot-service` (Bot Service med Client Credentials grant, konsumerar `message.published` från RabbitMQ, anropar Nordic Dev Mentor, postar svar via Gateway-relay).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
@@ -70,7 +82,7 @@ git log --oneline | head -5
 ## Workflow-regler
 
 - **Feature-branch per plan:** `plan-01-bootstrap`, `plan-02-auth-service`, etc. Merge till `main` vid plan-slut.
-- **Verifiera dependency-versioner** mot Maven Central / context7 INNAN commit. Spring Boot 4.0.6 är lägsta accepterad version. Spring Cloud BOM 2025.0.x.
+- **Verifiera dependency-versioner** mot Maven Central / context7 INNAN commit. Spring Boot 4.0.6 är lägsta accepterad version. Spring Cloud BOM 2025.1.1 (Aurora — Boot 4-kompatibel).
 - **Narration:** förklara varje steg pedagogiskt INNAN utförande. Ingen "snabb tyst commit" — användaren bygger för att lära.
 - **Java 21**, Maven multi-module, Postgres 16, RabbitMQ 4, Minikube med Docker driver.
 - **Verifiera lokalt med `mvn -B clean verify`** innan commit av stora ändringar.
@@ -92,3 +104,4 @@ git log --oneline | head -5
 - **ADR-0004** gRPC för intern read-trafik, REST för writes.
 - **ADR-0005** Inga foreign keys över databas-gränser.
 - **ADR-0006** Spring gRPC 1.0.3 (officiell Spring-portfolio) istället för `net.devh:grpc-spring-boot-starter` (fast på Boot 3.2.4).
+- **ADR-0007** Spring Cloud Gateway WebMVC-variant istället för WebFlux — konsistens med övriga services (servlet-stack, `SecurityFilterChain`).

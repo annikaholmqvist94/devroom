@@ -1,0 +1,78 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway
+
+  # ---- OAuth2 Client: Authorization Code-flöde mot Auth Service ----
+  # registration.* = vem VI är som klient hos Auth Service
+  # provider.*     = var Auth Service ligger (issuer-uri triggar OIDC discovery)
+  security:
+    oauth2:
+      client:
+        registration:
+          auth-service:
+            client-id: gateway
+            client-secret: ${GATEWAY_CLIENT_SECRET}
+            client-authentication-method: client_secret_basic
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope: openid, profile
+            client-name: Devroom Auth
+        provider:
+          auth-service:
+            # /.well-known/openid-configuration läses från denna URL vid uppstart.
+            # authorization-uri, token-uri, jwk-set-uri discoveras automatiskt.
+            issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
+
+  # ---- Spring Cloud Gateway (Server WebMVC-variant, se ADR-0007) ----
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          routes:
+            # User Service: /api/users/** → http://localhost:8082/users/**
+            - id: users
+              uri: http://localhost:8082
+              predicates:
+                - Path=/api/users/**
+              filters:
+                - StripPrefix=1   # tar bort /api innan upstream-anrop
+                - TokenRelay      # injicera Authorization: Bearer från session
+
+            # Message Service: /api/messages/** → http://localhost:8083/messages/**
+            - id: messages
+              uri: http://localhost:8083
+              predicates:
+                - Path=/api/messages/**
+              filters:
+                - StripPrefix=1
+                - TokenRelay
+
+            # Signup proxas direkt till Auth Service utan auth — användaren
+            # är ju inte inloggad än när hen signar upp.
+            - id: signup
+              uri: http://localhost:8081
+              predicates:
+                - Path=/signup/**
+
+# ---- Actuator: probes + route-inspection ----
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, gateway
+  endpoint:
+    health:
+      probes:
+        enabled: true
+    gateway:
+      access: read-only    # GET /actuator/gateway/routes listar aktiva routes
+
+# ---- Loggning ----
+logging:
+  level:
+    org.springframework.cloud.gateway: INFO
+    org.springframework.security: INFO
+    org.springframework.web: INFO

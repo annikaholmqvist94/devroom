@@ -19,12 +19,14 @@
         <grpc.version>1.81.0</grpc.version>
         <protobuf.version>4.34.1</protobuf.version>
         <spring-grpc.version>1.0.3</spring-grpc.version>
+        <spring-cloud.version>2025.1.1</spring-cloud.version>
     </properties>
 
     <modules>
         <module>services/auth-service</module>
         <module>services/user-service</module>
         <module>services/message-service</module>
+        <module>services/gateway</module>
     </modules>
 
     <dependencyManagement>
@@ -47,6 +49,13 @@
                 <groupId>org.springframework.grpc</groupId>
                 <artifactId>spring-grpc-dependencies</artifactId>
                 <version>${spring-grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
