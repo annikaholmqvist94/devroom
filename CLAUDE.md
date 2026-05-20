@@ -24,7 +24,7 @@
 ## Aktuell branch och status
 
 ```bash
-git branch    # main + plan-07-bot-service (klar, redo för PR)
+git branch    # main + plan-08-frontend (klar, redo för PR)
 git log --oneline | head -5
 ```
 
@@ -80,7 +80,20 @@ git log --oneline | head -5
 
 **Compose-strategi:** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]` så att `docker compose up` bara startar infra som default.
 
-**Nästa steg:** Merga `plan-07-bot-service` till `main`, sedan ny branch `plan-08-frontend` (Next.js 16 / React 19 / TS / Tailwind 4 — `fetch(..., { credentials: 'include' })` mot Gateway, ingen auth-lib, inga tokens i localStorage).
+**Plan 08 (2026-05-20, branch `plan-08-frontend`, 8 commits):** Next.js 16-frontend implementerad och feature-komplett. Cookie-baserad auth via Gateway, ingen `lib/auth.ts`, inga tokens i browser. `npm run build` + `npm run lint` gröna. `mvn -B clean verify` på hela repot grön (17 backend-tester, ~57s).
+
+- **Stack:** Next.js 16.2.6, React 19.2.4, Tailwind 4 (CSS-first `@theme inline { ... }`), TypeScript 5, ESLint 9. Speglar Nordic Dev Mentor — no-src-dir, flat `app/`, samma typografi (Inter / Crimson Pro / JetBrains Mono) och färgpalett (cream-toner, accent-orange).
+- **Plan-kropp vs pivot-banner:** plan-kroppen specade JWT-i-localStorage + Authorization-headers, men pivot-bannern (2026-05-12) ändrade allt till cookie-baserad auth. Följde bannern strikt: ingen `lib/auth.ts`, ingen Authorization-header från frontend, `credentials: 'include'` på alla `fetch`.
+- **Auth-flöde:** `/login` är bara en `<a href="${GATEWAY}/oauth2/authorization/auth-service">` som triggar Spring Security:s Authorization Code-flöde. `/signup` är ett React-formulär som POST:ar JSON till `${GATEWAY}/signup/` (Gateway-route utan TokenRelay), redirectar sedan in i OAuth2-login. Logout via POST mot `${GATEWAY}/logout` (CSRF disabled i Gateway-BFF).
+- **`/api/me` som inloggad-probe:** Gateway:s RouterFunction returnerar 200+JSON eller 401. Frontend använder den i `ChannelsLayout` och root-`page.tsx` för att avgöra om användaren är inloggad. `api.ts` har special-case: 401 från `/api/me` redirectar INTE, så login-sidan inte infinite-loopar när den check:ar sig själv.
+- **`usePolling`-hook:** 3-sekunders polling mot `/api/messages?channelId=X` med visibility-pause (pausar när fliken är dold), exponential backoff vid errors (1s → 2s → 4s → … cap 30s), `refetch`-callback så `PostMessageForm` kan trigga omedelbar fetch efter post.
+- **Mention-rendering:** `MessageItem` splittar body på samma regex som server (`@[a-z0-9-]+`) och slår upp varje match i `message.mentions`. System-mentions får accent-orange MentionBadge, human-mentions neutral, oresolverade får muted plain text.
+- **3 hårdkodade demo-kanaler** (`333…01/02/03`) i `ChannelList`. Funkar eftersom Message-service inte FK-validerar channel-ids (ADR-0005).
+- **Smoke-test deferred:** manuell browser-test kräver hela stacken uppe (5 services + RabbitMQ + 3 Postgres + Nordic Dev Mentor). Görs separat när du har tid, kombinerat med Plan 09 cross-service-tester.
+
+**Compose-strategi (oförändrad):** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]`.
+
+**Nästa steg:** Merga `plan-08-frontend` till `main`, sedan Plan 09 (cross-service integration tests) eller manuell smoke-test av frontend mot full stacken (signup → login → mention → bot-svar).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
