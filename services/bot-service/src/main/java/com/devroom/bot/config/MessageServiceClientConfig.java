@@ -9,6 +9,7 @@ import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProvider
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientProviderBuilder;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.security.oauth2.client.web.client.OAuth2ClientHttpRequestInterceptor;
 import org.springframework.security.oauth2.client.web.client.RequestAttributePrincipalResolver;
 import org.springframework.web.client.RestClient;
@@ -51,7 +52,8 @@ public class MessageServiceClientConfig {
     @Bean
     RestClient messageServiceRestClient(
             @Value("${devroom.bot.message-service-url}") String url,
-            OAuth2AuthorizedClientManager manager) {
+            OAuth2AuthorizedClientManager manager,
+            ClientHttpRequestFactory http1ClientHttpRequestFactory) {
 
         OAuth2ClientHttpRequestInterceptor interceptor =
                 new OAuth2ClientHttpRequestInterceptor(manager);
@@ -61,6 +63,7 @@ public class MessageServiceClientConfig {
 
         return RestClient.builder()
                 .baseUrl(url)
+                .requestFactory(http1ClientHttpRequestFactory)
                 .requestInterceptor(interceptor)
                 .build();
     }
