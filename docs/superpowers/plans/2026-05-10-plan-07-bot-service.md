@@ -1,60 +1,23 @@
 # Plan 07: Bot Service (wrappar Nordic Dev Mentor)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
->
-> **VIKTIG PRE-STEP:** Innan denna plan körs, läs `~/IdeaProjects/dev-mentor/README.md` och inspektera dess struktur. Bot Service ska INTEGRERA Nordic Dev Mentor som dependency, inte modifiera dess kärnlogik.
->
-> **Revision 2026-05-12 — OAuth2-pivot:** Hela auth-mekaniken pivotas. Konkret ändringar:
->
-> - **Inget pre-issued service-JWT.** Ersätter `GenerateServiceJwt` (Task 4) och `ServiceTokenProvider` (Task 5) med Spring Security OAuth2 Client + **Client Credentials grant**.
-> - **Dependency:** ersätt referens till `auth-starter` (finns inte längre) med `spring-boot-starter-oauth2-client`.
-> - **application.yml** lägg till:
->
->   ```yaml
->   spring:
->     security:
->       oauth2:
->         client:
->           registration:
->             auth-service:
->               provider: auth-service
->               client-id: bot-service
->               client-secret: ${BOT_CLIENT_SECRET}
->               authorization-grant-type: client_credentials
->               scope: bot:write
->           provider:
->             auth-service:
->               issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
->   ```
->
-> - **MessagePoster** (Task 10) använder `WebClient` (eller `RestClient`) med `ServletOAuth2AuthorizedClientExchangeFilterFunction` som hanterar token-fetching och caching automatiskt:
->
->   ```java
->   @Bean
->   public WebClient messageServiceWebClient(OAuth2AuthorizedClientManager manager) {
->       ServletOAuth2AuthorizedClientExchangeFilterFunction oauth2 =
->               new ServletOAuth2AuthorizedClientExchangeFilterFunction(manager);
->       oauth2.setDefaultClientRegistrationId("auth-service");
->       return WebClient.builder()
->               .baseUrl(messageServiceUrl)
->               .apply(oauth2.oauth2Configuration())
->               .build();
->   }
->   ```
->
-> - Spring sköter resten: hämtar access-token från Auth Server vid första anrop, cachar i `OAuth2AuthorizedClientService`, refreshar när den expirerar.
-> - **Task 1 om Nordic Dev Mentor-integration är oförändrad** — den handlar om dev-mentor som kodbas, inte om auth.
-> - **Task 11 (Integration test) ska mocka Auth Server:s /oauth2/token-endpoint** via WireMock istället för att mocka pre-issued JWT.
+> **Revisionshistorik:**
+> - **2026-05-12 — OAuth2-pivot:** byter pre-issued service-JWT mot Spring Security OAuth2 Client + Client Credentials grant. `GenerateServiceJwt` + `ServiceTokenProvider` ersätts av automatisk token-hantering.
+> - **2026-05-20 — Konsekvens-pivot:** RestClient + `OAuth2ClientHttpRequestInterceptor` istället för WebClient + `ServletOAuth2AuthorizedClientExchangeFilterFunction`. Matchar Plan 06 (WebMVC-Gateway) — en servlet-mental-modell i hela repot, ingen reactive paradigm. Se ADR-0008.
+> - **2026-05-20 — Nordic Dev Mentor-strategi fastställd:** dev-mentor är en standalone Spring Boot-app, INTE en lib. **Variant A (svart låda via REST)** vald — Bot Service anropar `POST /api/v1/chat` med `{personality, message, sessionId?}`. Dev-mentor körs på port 8090 (för att inte kollidera med Gateway:s 8080).
 
-**Goal:** Implementera Bot Service som konsumerar `message-published` från RabbitMQ, filtrerar mentions med `is_system=true`, slår upp avsändare via gRPC, anropar Nordic Dev Mentor för att generera bot-svar, postar svar via REST mot Message Service med service-JWT. Vid plan-slut: skicka ett meddelande med @-mention i lokalt running system → bot-svar dyker upp i samma tråd ~5 sekunder senare.
+**Goal:** Implementera Bot Service som konsumerar `message.published` från RabbitMQ, filtrerar mentions med `isSystem=true`, slår upp avsändare via gRPC, anropar Nordic Dev Mentor för att generera bot-svar, postar svar via REST mot Message Service med OAuth2-token. Vid plan-slut: `mvn -B clean verify` grön + integration-test bevisar end-to-end-flödet utan att kräva externa services uppe.
 
-**Architecture:** Spring Boot 4. Importerar Nordic Dev Mentor som biblioteks-dependency för dess `MentorChatService` (eller motsvarande huvudklass). RabbitMQ-consumer på `bot-service.message-published`-queue. gRPC-klient mot User Service. RestClient mot Message Service med service-JWT från K8s Secret (lokalt: file).
+**Architecture:** Spring Boot 4. Konsumerar `message.published` på durable queue `bot-service.message-published`. gRPC-klient mot User Service (Spring gRPC 1.0.3, samma mönster som Message Service). RestClient mot Nordic Dev Mentor (publikt API). RestClient + `OAuth2ClientHttpRequestInterceptor` mot Message Service med automatisk token-hantering via `OAuth2AuthorizedClientManager`.
 
-**Tech Stack:** Spring Boot 4, Spring AMQP, gRPC client, Spring RestClient, Nordic Dev Mentor som dependency, JJWT.
+**Tech Stack:** Spring Boot 4.0.6, Spring AMQP, Spring gRPC 1.0.3, Spring Security 7 OAuth2 Client, Jackson 3, Testcontainers (RabbitMQ), WireMock, InProcess gRPC.
 
 **Refererar spec:** sektion 2.1 (Bot Service), 5.2, 4.3.
 
-**Pre-conditions:** plan 01-06 klara. Nordic Dev Mentor lokalt installerat i Maven local repo.
+**Pre-conditions:**
+- ✅ Plan 01-06 mergade till `main`
+- ✅ Nordic Dev Mentor finns lokalt på `~/IdeaProjects/dev-mentor` (Spring Boot 4, port 8080)
+- ✅ Auth Service har bot-service-client registrerad (`client-id: bot-service`, `client_credentials`, scope `bot:write`) — i `services/auth-service/src/main/resources/application.yml:57-71`
+- ✅ Message Service publicerar `message.published` på `devroom.events` med routing-key `message.published` och payload-fält `mentions: [{userId, isSystem, personality}]`
 
 ---
 
@@ -67,226 +30,127 @@ services/bot-service/
 │   ├── BotServiceApplication.java
 │   ├── config/
 │   │   ├── RabbitTopologyConfig.java   # bot-service.message-published-queue + DLQ
-│   │   ├── GrpcClientConfig.java
-│   │   ├── HttpClientConfig.java       # RestClient mot Message Service
-│   │   └── ServiceTokenConfig.java     # läser pre-issued service-JWT från fil
+│   │   ├── GrpcClientConfig.java       # ManagedChannel mot user-service
+│   │   ├── MentorRestClientConfig.java # RestClient mot dev-mentor
+│   │   └── MessageServiceClientConfig.java # RestClient + OAuth2-interceptor
 │   ├── messaging/
 │   │   └── MessagePublishedConsumer.java
 │   ├── application/
 │   │   ├── BotReplyOrchestrator.java   # huvudflöde
-│   │   ├── MentorClient.java           # wrapper runt Nordic Dev Mentor-kärnan
-│   │   ├── MessagePoster.java          # POST /messages med service-JWT
+│   │   ├── MentorClient.java           # wrapper runt dev-mentor REST
+│   │   ├── MessagePoster.java          # POST /messages med OAuth2-token
 │   │   └── SenderLookup.java           # gRPC GetUser
 │   └── domain/
-│       └── (delade typer)
+│       └── (delade typer vid behov)
 ├── src/main/resources/
 │   └── application.yml
 └── src/test/java/com/devroom/bot/
-    └── BotServiceIntegrationTest.java
+    ├── BotServiceIntegrationTest.java
+    └── support/
+        └── (test-stöd-klasser, t.ex. WireMock-extensions)
 ```
 
 ---
 
-## Task 1: Förbered Nordic Dev Mentor som lokal Maven-dependency
+## Task 1: Förbered Nordic Dev Mentor som black-box ✅ KLAR
 
-- [ ] **Step 1: Läs dev-mentor-repot**
+**Resultat av inspektion 2026-05-20:**
 
-```bash
-cat ~/IdeaProjects/dev-mentor/README.md
-ls ~/IdeaProjects/dev-mentor/
-```
+- `~/IdeaProjects/dev-mentor` är en **standalone Spring Boot 4-app**, inte en lib
+- REST-yta: `POST /api/v1/chat` med `{ personality, message, sessionId? }` → `{ sessionId, personality, reply }`
+- Default-port `8080` — måste mappas om till `8090` via `SERVER_PORT=8090` för att inte kollidera med Gateway
+- Ingen auth (känd limitation i deras README) — Bot Service kallar utan token
+- 4 personalities matchar våra mentor-users seedade i Plan 03: `junior-helper`, `senior-architect`, `code-reviewer`, `rubber-duck`
 
-Förstå: är det en publicerad lib eller måste vi bygga lokalt? Vad är `groupId:artifactId:version`? Vilken huvudklass bör vi använda?
-
-Om det är en standalone-applikation (har `main`-klass) snarare än en lib, justera Bot Service-strategin: extrahera kärnlogiken som lib eller använd Nordic Dev Mentor som black-box via internt REST-anrop.
-
-- [ ] **Step 2: Installera lokalt om det är en lib**
-
-```bash
-cd ~/IdeaProjects/dev-mentor
-mvn -DskipTests install
-```
-
-Resultat: dev-mentor finns i `~/.m2/repository/...`.
-
-- [ ] **Step 3: Justera planen om Nordic Dev Mentor INTE är en lib**
-
-Om den är en standalone Spring Boot-applikation utan exporterbar lib:
-- Alternativ 1: extrahera dess `MentorChatService` + dependencies till en separat module i Devroom monorepo (kopia, refaktorera).
-- Alternativ 2: kör Nordic Dev Mentor som egen container i docker-compose/k8s, anropa via REST.
-
-Den enklare vägen för demon är **Alternativ 2** (svart låda via REST). Då blir Bot Service:
-1. Konsumera message-published
-2. Filtrera mentions
-3. Slå upp avsändare via gRPC mot User Service
-4. POST /chat eller liknande till Nordic Dev Mentor (own container)
-5. POST /messages mot Message Service med svaret
-
-Den här planen antar Alternativ 2 om inget annat sägs vid execution. Justera vid behov.
+**Beslut: Variant A (svart låda via REST).** Variant B (direkt-import) skulle kräva att vi mängd-refaktorerar dev-mentor till en lib — onödigt scope när REST-API:et redan finns. Att starta dev-mentor som egen container i compose/k8s är Plan 10-jobb.
 
 ---
 
 ## Task 2: Scaffold Maven-modul
 
-- [ ] **Step 1: pom.xml** — beroenden:
-  - `spring-boot-starter-web` (för actuator + health, ingen public REST-API)
-  - `spring-boot-starter-amqp`
-  - `spring-boot-starter-actuator`
-  - `auth-starter` (för att utfärda/använda service-JWT om vi gör det dynamiskt — eller bara läs en pre-issued)
-  - `grpc-client-spring-boot-starter` + grpc-protobuf + protobuf-java + protobuf-plugin (för att gen User-proto)
-  - Test: spring-boot-starter-test, testcontainers (postgres, rabbitmq), wiremock
+**Steg 1: Skapa `services/bot-service/pom.xml`** — kopia av `message-service/pom.xml`-strukturen, med skillnaden att:
+- INGEN `spring-boot-starter-data-jpa`, `-flyway`, `-validation`, postgres — Bot Service har ingen egen DB
+- INGEN `-starter-oauth2-resource-server` — Bot Service är inte en HTTP-yta för andra klienter
+- LÄGG TILL `spring-boot-starter-oauth2-client` — för att hämta Client Credentials-token mot Auth Service
+- INGEN `spring-grpc-server-spring-boot-starter` i test — vi mockar User Service med Spring gRPC:s in-process-stöd
+- LÄGG TILL `wiremock-standalone` (test) — mockar dev-mentor + Auth Service:s `/oauth2/token` + Message Service
 
-Lägg till modulen i parent POM. Commit.
+**Steg 2: Lägg till modulen** i parent `pom.xml` `<modules>`-blocket efter `gateway`.
+
+**Steg 3: Verifiera build** med `mvn -pl services/bot-service compile` — ska bygga (även om det inte finns Java-kod än, ska scaffold:en kompilera).
+
+Commit: `chore(bot-service): scaffold maven module`
 
 ---
 
-## Task 3: Application + config
+## Task 3: BotServiceApplication + application.yml
 
-- [ ] **Step 1: application.yml**
+**Steg 1: `BotServiceApplication.java`**
+
+```java
+@SpringBootApplication
+public class BotServiceApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(BotServiceApplication.class, args);
+    }
+}
+```
+
+**Steg 2: `application.yml`** — port `8084`, RabbitMQ-listener-config (samma retry-mönster som User Service: 3 försök, exponentiell backoff 1s→2s→4s), Spring gRPC client mot user-service, OAuth2 Client Credentials mot Auth Service, dev-mentor + Message Service URL:er.
+
+Nyckel-config:
 
 ```yaml
-server:
-  port: 8084
-
 spring:
-  application:
-    name: bot-service
-  rabbitmq:
-    host: localhost
-    port: 5672
-    username: devroom
-    password: devroom
-    listener:
-      simple:
-        acknowledge-mode: auto
-        prefetch: 5
-        retry:
-          enabled: true
-          max-attempts: 3
-          initial-interval: 1s
-          multiplier: 2.0
-          max-interval: 4s
+  security:
+    oauth2:
+      client:
+        registration:
+          auth-service:
+            provider: auth-service
+            client-id: bot-service
+            client-secret: ${BOT_CLIENT_SECRET:dev-bot-secret-change-me}
+            authorization-grant-type: client_credentials
+            scope: bot:write
+        provider:
+          auth-service:
+            issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
 
-grpc:
-  client:
-    user-service:
-      address: static://localhost:9082
-      negotiationType: plaintext
+spring.grpc.client.channels.user-service:
+  address: static://localhost:9082
+  negotiation-type: plaintext
 
-devroom:
-  bot:
-    service-jwt-path: ${BOT_SERVICE_JWT_PATH:file:./keys/bot-service.jwt}
-    message-service-url: ${MESSAGE_SERVICE_URL:http://localhost:8083}
-    nordic-dev-mentor-url: ${NORDIC_DEV_MENTOR_URL:http://localhost:8090}  # om svart låda
-
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health
+devroom.bot:
+  message-service-url: ${MESSAGE_SERVICE_URL:http://localhost:8083}
+  nordic-dev-mentor-url: ${NORDIC_DEV_MENTOR_URL:http://localhost:8090}
 ```
 
-Commit.
+**Varför `issuer-uri`?** Spring Security gör en `GET ${issuer-uri}/.well-known/openid-configuration` vid bean-skapande, hittar `token_endpoint`, och vet då vart Client Credentials-anropet ska. Samma OIDC discovery-mönster som Gateway använder.
+
+**Varför `provider`-key:n `auth-service`?** Spring registrerar en `OAuth2AuthorizedClientProvider` per registration. När vi senare gör `manager.authorize(... .principal("bot-service") .clientRegistrationId("auth-service") ...)` använder den den config:en.
+
+Commit: `feat(bot-service): application + config`
 
 ---
 
-## Task 4: Generera service-JWT (en gång manuellt)
-
-Service-JWT signeras av Auth Services privata nyckel och lagras som fil. Skript för att generera den, körs manuellt en gång:
-
-- [ ] **Step 1: Skriv hjälpklass `GenerateServiceJwt` (i `auth-service/src/main/java/.../tools/`)**
+## Task 4: RabbitTopologyConfig
 
 ```java
-package com.devroom.auth.tools;
-
-import com.devroom.auth.JwtClaims;
-import com.devroom.auth.JwtIssuer;
-import com.devroom.auth.KeyLoader;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
-
-public class GenerateServiceJwt {
-    public static void main(String[] args) throws Exception {
-        if (args.length < 3) {
-            System.err.println("Usage: GenerateServiceJwt <private-key-pem> <service-name> <output-file>");
-            System.exit(1);
-        }
-        var issuer = new JwtIssuer(KeyLoader.loadPrivateKey(Path.of(args[0])));
-        Instant now = Instant.now();
-        var claims = JwtClaims.forService(args[1], List.of("system"),
-                now, now.plus(Duration.ofDays(365)));
-        String jwt = issuer.issue(claims);
-        Files.writeString(Path.of(args[2]), jwt);
-        System.out.println("Service JWT written to " + args[2]);
-    }
-}
-```
-
-- [ ] **Step 2: Generera bot-service.jwt**
-
-```bash
-mvn -pl modules/auth-starter,services/auth-service compile
-mvn -pl services/auth-service exec:java -Dexec.mainClass=com.devroom.auth.tools.GenerateServiceJwt \
-  -Dexec.args="./keys/private.pem bot-service ./keys/bot-service.jwt"
-cat ./keys/bot-service.jwt
-```
-
-(Kräver `exec-maven-plugin` i auth-service POM eller exec via java direkt.)
-
-- [ ] **Step 3: Commit hjälpklassen** (men inte JWT-filen).
-
----
-
-## Task 5: ServiceTokenProvider
-
-```java
-package com.devroom.bot.config;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.core.io.Resource;
-import org.springframework.stereotype.Component;
-
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-
-@Component
-public class ServiceTokenProvider {
-    private final String token;
-
-    public ServiceTokenProvider(@Value("${devroom.bot.service-jwt-path}") Resource jwtResource) throws IOException {
-        try (var in = jwtResource.getInputStream()) {
-            this.token = new String(in.readAllBytes(), StandardCharsets.UTF_8).trim();
-        }
-    }
-
-    public String token() {
-        return token;
-    }
-}
-```
-
-Commit.
-
----
-
-## Task 6: RabbitMQ topology + consumer
-
-```java
-// RabbitTopologyConfig.java
 @Configuration
 public class RabbitTopologyConfig {
     public static final String EVENTS_EXCHANGE = "devroom.events";
     public static final String QUEUE = "bot-service.message-published";
     public static final String DLQ = "bot-service.message-published.dlq";
     public static final String DLX = "devroom.events.dlx";
+    public static final String ROUTING_KEY = "message.published";
 
-    @Bean public TopicExchange eventsExchange() { return new TopicExchange(EVENTS_EXCHANGE, true, false); }
-    @Bean public DirectExchange dlx() { return new DirectExchange(DLX, true, false); }
+    @Bean public TopicExchange eventsExchange() {
+        return new TopicExchange(EVENTS_EXCHANGE, true, false);
+    }
+
+    @Bean public DirectExchange dlx() {
+        return new DirectExchange(DLX, true, false);
+    }
 
     @Bean public Queue queue() {
         return QueueBuilder.durable(QUEUE)
@@ -294,43 +158,228 @@ public class RabbitTopologyConfig {
                 .withArgument("x-dead-letter-routing-key", DLQ)
                 .build();
     }
-    @Bean public Queue dlq() { return QueueBuilder.durable(DLQ).build(); }
+
+    @Bean public Queue dlq() {
+        return QueueBuilder.durable(DLQ).build();
+    }
 
     @Bean public Binding binding() {
-        return BindingBuilder.bind(queue()).to(eventsExchange()).with("message.published");
+        return BindingBuilder.bind(queue()).to(eventsExchange()).with(ROUTING_KEY);
     }
+
     @Bean public Binding dlqBinding() {
         return BindingBuilder.bind(dlq()).to(dlx()).with(DLQ);
     }
 }
 ```
 
+**Varför reuse av `devroom.events.dlx`?** User Service deklarerade redan DLX i Plan 04. RabbitMQ:s exchange-deklaration är idempotent — så länge egenskaperna matchar är det no-op. En central DLX gör DLQ-monitoring enklare framöver.
+
+Commit: `feat(bot-service): rabbit topology with DLQ`
+
+---
+
+## Task 5: MessagePublishedConsumer
+
 ```java
-// MessagePublishedConsumer.java
 @Component
 public class MessagePublishedConsumer {
 
-    private final BotReplyOrchestrator orchestrator;
-    private final ObjectMapper mapper;
+    private static final Logger log = LoggerFactory.getLogger(MessagePublishedConsumer.class);
 
-    public MessagePublishedConsumer(BotReplyOrchestrator orchestrator, ObjectMapper mapper) {
+    private final BotReplyOrchestrator orchestrator;
+    private final JsonMapper mapper;
+
+    public MessagePublishedConsumer(BotReplyOrchestrator orchestrator, JsonMapper mapper) {
         this.orchestrator = orchestrator;
         this.mapper = mapper;
     }
 
-    @RabbitListener(queues = "bot-service.message-published")
-    public void onMessage(byte[] payloadBytes) throws Exception {
-        JsonNode event = mapper.readTree(payloadBytes);
-        orchestrator.handle(event);
+    @RabbitListener(queues = RabbitTopologyConfig.QUEUE)
+    public void onMessage(byte[] payloadBytes) {
+        try {
+            JsonNode event = mapper.readTree(payloadBytes);
+            orchestrator.handle(event);
+        } catch (Exception e) {
+            log.error("Failed to handle message.published event", e);
+            throw new AmqpRejectAndDontRequeueException("Unhandled exception in consumer", e);
+        }
     }
 }
 ```
 
-Commit.
+**Varför `byte[]` istället för `String` eller `JsonNode`?** Spring AMQP:s default-`MessageConverter` är `SimpleMessageConverter` som kan ge `String` eller `Serializable`. Att ta emot `byte[]` är det mest robusta — vi äger deserialiseringen själva och har explicit kontroll över felhantering. Samma mönster som `UserRegisteredConsumer`.
+
+**Varför `AmqpRejectAndDontRequeueException`?** Standard Spring AMQP-retry-policy försöker 3 ggr (config från application.yml). Vid det 3:e misslyckandet behöver vi explicit säga "ge upp" så meddelandet hamnar i DLQ istället för att evigt loopa. `AmqpRejectAndDontRequeueException` är signalen.
+
+Commit: `feat(bot-service): rabbit consumer parses message.published events`
 
 ---
 
-## Task 7: BotReplyOrchestrator (huvudflöde)
+## Task 6: SenderLookup (gRPC)
+
+```java
+@Component
+public class SenderLookup {
+
+    private final UserGrpcServiceGrpc.UserGrpcServiceBlockingStub stub;
+
+    public SenderLookup(GrpcChannelFactory channels) {
+        ManagedChannel channel = channels.createChannel("user-service");
+        this.stub = UserGrpcServiceGrpc.newBlockingStub(channel);
+    }
+
+    public String displayName(String userId) {
+        try {
+            User user = stub.getUser(GetUserRequest.newBuilder().setUserId(userId).build());
+            return user.getDisplayName();
+        } catch (StatusRuntimeException e) {
+            return "user";
+        }
+    }
+}
+```
+
+**Varför `GrpcChannelFactory` och inte `@GrpcClient`?** Spring gRPC 1.0.3 (vår valda starter, ADR-0006) använder constructor injection + factory-mönster. `@GrpcClient`-annotation hör hemma i `net.devh:grpc-spring-boot-starter` som vi övergav. Samma mönster som `MentionResolver` i message-service.
+
+**Varför fallback `"user"` istället för att kasta exception?** Om User Service är nere ska vi inte stoppa hela bot-flödet — vi har inget meningsfullt fallback-svar men en saknad displayName är inte fatalt. Mentor-prompten används med eller utan namnet.
+
+Commit: `feat(bot-service): grpc sender lookup against user-service`
+
+---
+
+## Task 7: MentorClient
+
+```java
+@Component
+public class MentorClient {
+
+    private final RestClient client;
+
+    public MentorClient(@Qualifier("mentorRestClient") RestClient client) {
+        this.client = client;
+    }
+
+    public String chat(String personality, String message) {
+        ChatResponse response = client.post()
+                .uri("/api/v1/chat")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ChatRequest(personality, message, null))
+                .retrieve()
+                .body(ChatResponse.class);
+        return response == null ? "" : response.reply();
+    }
+
+    public record ChatRequest(String personality, String message, String sessionId) {}
+    public record ChatResponse(String sessionId, String personality, String reply) {}
+}
+```
+
+`MentorRestClientConfig`:
+
+```java
+@Configuration
+public class MentorRestClientConfig {
+    @Bean
+    public RestClient mentorRestClient(@Value("${devroom.bot.nordic-dev-mentor-url}") String url) {
+        return RestClient.builder().baseUrl(url).build();
+    }
+}
+```
+
+**Varför skicka `sessionId: null`?** För MVP är varje bot-svar fristående. Senare kan vi mappa `(channelId, mentorUserId)` → en sessionId så mentorn behåller kontext per kanal-mention-kombo. Out-of-scope nu.
+
+**Varför records för request/response?** Boot 4 + Jackson 3 mappar records out-of-the-box. Mindre boilerplate än fullskaliga DTO-klasser. Begränsat scope (bara MentorClient internt).
+
+Commit: `feat(bot-service): mentor REST client (variant A)`
+
+---
+
+## Task 8: MessagePoster (OAuth2)
+
+```java
+@Component
+public class MessagePoster {
+
+    private static final Logger log = LoggerFactory.getLogger(MessagePoster.class);
+
+    private final RestClient client;
+
+    public MessagePoster(@Qualifier("messageServiceRestClient") RestClient client) {
+        this.client = client;
+    }
+
+    public void post(String channelId, String asUserId, String body,
+                     String parentMessageId, String idempotencyKey) {
+        Map<String, Object> req = new LinkedHashMap<>();
+        req.put("channelId", channelId);
+        req.put("body", body);
+        req.put("asUserId", asUserId);
+        if (parentMessageId != null) req.put("parentMessageId", parentMessageId);
+
+        client.post()
+                .uri("/messages")
+                .header("Idempotency-Key", "bot-reply-" + idempotencyKey)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(req)
+                .retrieve()
+                .toBodilessEntity();
+
+        log.debug("Posted bot reply to {} channel={}", asUserId, channelId);
+    }
+}
+```
+
+`MessageServiceClientConfig`:
+
+```java
+@Configuration
+public class MessageServiceClientConfig {
+
+    @Bean
+    public OAuth2AuthorizedClientManager authorizedClientManager(
+            ClientRegistrationRepository registrations,
+            OAuth2AuthorizedClientService clientService) {
+
+        OAuth2AuthorizedClientProvider provider = OAuth2AuthorizedClientProviderBuilder
+                .builder()
+                .clientCredentials()
+                .build();
+
+        AuthorizedClientServiceOAuth2AuthorizedClientManager manager =
+                new AuthorizedClientServiceOAuth2AuthorizedClientManager(registrations, clientService);
+        manager.setAuthorizedClientProvider(provider);
+        return manager;
+    }
+
+    @Bean
+    public RestClient messageServiceRestClient(
+            @Value("${devroom.bot.message-service-url}") String url,
+            OAuth2AuthorizedClientManager manager) {
+        OAuth2ClientHttpRequestInterceptor oauth2 =
+                new OAuth2ClientHttpRequestInterceptor(manager);
+        oauth2.setClientRegistrationIdResolver(request -> "auth-service");
+        return RestClient.builder()
+                .baseUrl(url)
+                .requestInterceptor(oauth2)
+                .build();
+    }
+}
+```
+
+**Varför `AuthorizedClientServiceOAuth2AuthorizedClientManager`?** Spring Security har två manager-implementationer:
+- `DefaultOAuth2AuthorizedClientManager` — kräver en `HttpServletRequest` i scope (för web-flöden där användaren är inloggad)
+- `AuthorizedClientServiceOAuth2AuthorizedClientManager` — fristående, kräver INGEN request. **Det är vad vi behöver** eftersom Bot Service triggas av RabbitMQ, inte HTTP
+
+**Varför `OAuth2ClientHttpRequestInterceptor` och inte `ExchangeFilterFunction`?** `ExchangeFilterFunction` är WebFlux. `OAuth2ClientHttpRequestInterceptor` finns i `spring-security-oauth2-client` och plugger rakt in i `RestClient` (servlet). Båda gör samma sak: före varje request, kör `manager.authorize(...)`, plocka access-token, sätt `Authorization: Bearer ...`. Token cachas automatiskt i `OAuth2AuthorizedClientService` tills den expirerar.
+
+**Varför sätta `clientRegistrationIdResolver` med lambda?** Default-resolverns letar efter en attribut på request:en. Vår RabbitMQ-trigger-kontext har ingen sådan, så vi binder hårt till `auth-service`-registreringen.
+
+Commit: `feat(bot-service): oauth2 client credentials + message poster`
+
+---
+
+## Task 9: BotReplyOrchestrator
 
 ```java
 @Service
@@ -349,30 +398,29 @@ public class BotReplyOrchestrator {
     }
 
     public void handle(JsonNode event) {
-        // 1. Filtrera: är det någon mention med is_system=true?
-        var mentions = event.get("mentions");
-        if (mentions == null || !mentions.isArray()) return;
+        JsonNode mentions = event.get("mentions");
+        if (mentions == null || !mentions.isArray() || mentions.isEmpty()) return;
+
+        String channelId = event.get("channel_id").asString();
+        String senderId = event.get("sender_id").asString();
+        String body = event.get("body").asString();
+        String originalMessageId = event.get("message_id").asString();
+        JsonNode parent = event.get("parent_message_id");
+        String parentForReply = (parent == null || parent.isNull())
+                ? originalMessageId
+                : parent.asString();
 
         for (JsonNode m : mentions) {
             if (!m.get("isSystem").asBoolean()) continue;
 
-            String personality = m.get("personality").asText();
-            String mentorUserId = m.get("userId").asText();
-            String channelId = event.get("channel_id").asText();
-            String senderId = event.get("sender_id").asText();
-            String body = event.get("body").asText();
-            String originalMessageId = event.get("message_id").asText();
-            String parentForReply = event.get("parent_message_id").isNull()
-                    ? originalMessageId
-                    : event.get("parent_message_id").asText();
+            String personality = m.get("personality").asString();
+            String mentorUserId = m.get("userId").asString();
 
-            // 2. Slå upp avsändare för personalisering
             String senderName = senderLookup.displayName(senderId);
+            log.debug("Bot mention for {} from {} in channel {}", personality, senderName, channelId);
 
-            // 3. Anropa Nordic Dev Mentor
-            String reply = mentor.chat(personality, body, senderName);
+            String reply = mentor.chat(personality, body);
 
-            // 4. Posta svaret till Message Service
             poster.post(channelId, mentorUserId, reply, parentForReply, originalMessageId);
 
             log.info("Posted bot reply from {} to channel {}", personality, channelId);
@@ -381,179 +429,138 @@ public class BotReplyOrchestrator {
 }
 ```
 
-Commit.
+**Varför `parentForReply = originalMessageId` när parent är null?** En @mention på top-level (utan parent) ska få bot-svaret som tråd-svar PÅ top-level-meddelandet. När parent finns (mention inne i en tråd) ska bot-svaret hamna i samma tråd — alltså samma parent. Det här är "thread coherence"-regeln.
+
+**Varför `idempotencyKey = originalMessageId`?** Deterministisk per logiskt event. Om vi får samma `message.published` två gånger blir Idempotency-Key:n identisk — när Message Service senare implementerar header-läsning fångas duplikatet automatiskt.
+
+**Varför `asString()` och inte `asText()`?** Jackson 3-migration (CLAUDE.md). `asText()` är borttaget.
+
+Commit: `feat(bot-service): orchestrator wires mentions to bot replies`
 
 ---
 
-## Task 8: SenderLookup (gRPC)
+## Task 10: Integration test
+
+Test-strategi (kompletterar `project-testing-strategy`-memory):
+- **RabbitMQ**: Testcontainers — vi behöver riktig routing/exchange/queue
+- **User Service gRPC**: In-process gRPC (`InProcessServerBuilder`) — registrerar en mock-implementation av `UserGrpcService`
+- **Nordic Dev Mentor**: WireMock — mockar `POST /api/v1/chat`
+- **Message Service**: WireMock — mockar `POST /messages`, verifierar `Authorization: Bearer ...`-header
+- **Auth Service `/oauth2/token`**: WireMock — returnerar en fake access-token JSON-svar
+- **Auth Service OIDC discovery**: WireMock — returnerar minimal `/.well-known/openid-configuration` så Spring kan hitta token-endpoint
 
 ```java
-@Component
-public class SenderLookup {
-    @GrpcClient("user-service")
-    private UserGrpcServiceGrpc.UserGrpcServiceBlockingStub stub;
+@SpringBootTest
+@Testcontainers
+class BotServiceIntegrationTest {
 
-    public String displayName(String userId) {
-        try {
-            var u = stub.getUser(GetUserRequest.newBuilder().setUserId(userId).build());
-            return u.getDisplayName();
-        } catch (StatusRuntimeException e) {
-            return "user";  // fallback om uppslag failar
-        }
+    static WireMockServer wireMock;  // gemensam för auth + mentor + message
+    static Server grpcServer;
+    static String grpcServerName;
+
+    @Container
+    static RabbitMQContainer rabbitmq = new RabbitMQContainer("rabbitmq:4-management-alpine");
+
+    static {
+        wireMock = new WireMockServer(wireMockConfig().dynamicPort());
+        wireMock.start();
+        stubOidcDiscovery();
+        stubTokenEndpoint();
+        // mentor + message stubs sätts i @Test eller @BeforeEach
+        startInProcessGrpc();
+    }
+
+    @DynamicPropertySource
+    static void props(DynamicPropertyRegistry r) {
+        r.add("spring.rabbitmq.host", rabbitmq::getHost);
+        r.add("spring.rabbitmq.port", rabbitmq::getAmqpPort);
+        r.add("spring.rabbitmq.username", rabbitmq::getAdminUsername);
+        r.add("spring.rabbitmq.password", rabbitmq::getAdminPassword);
+        r.add("spring.security.oauth2.client.provider.auth-service.issuer-uri",
+                () -> wireMock.baseUrl());
+        r.add("devroom.bot.nordic-dev-mentor-url", wireMock::baseUrl);
+        r.add("devroom.bot.message-service-url", wireMock::baseUrl);
+        // gRPC: byt static://-address mot in-process-namnet
+        r.add("spring.grpc.client.channels.user-service.address",
+                () -> "in-process:" + grpcServerName);
     }
 }
 ```
 
-Commit.
+Tester:
+- `mentionWithIsSystemTriggersBotReply` — publicera event på `devroom.events`, vänta på POST mot WireMock, verifiera headers + payload
+- `mentionWithIsSystemFalseIsIgnored` — publicera event, verifiera att INGEN POST sker till Message Service
+- `noMentionsIsNoOp` — tom mentions-array, verifiera no POST
+
+**Varför WireMock för `/oauth2/token`?** Spring Security hämtar token via discovery + token-endpoint vid första anropet. Att ha en riktig Auth Service uppe i integration-testet skulle kräva Postgres + Auth Service-container — cykliskt build (Bot-test → Auth-image → Auth-källa). WireMock kapar den cykeln. (Samma resonemang som Gateway-test i Plan 06.)
+
+**Varför in-process gRPC istället för Testcontainer av user-service?** Samma anti-cykel-argument + InProcess är ~10x snabbare än en container-startup.
+
+Commit: `test(bot-service): integration test with testcontainers + wiremock + in-process grpc`
 
 ---
 
-## Task 9: MentorClient (svart låda eller direkt-import)
+## Task 11: ADR-0008
 
-**Variant A — Nordic Dev Mentor som svart låda (REST):**
+Skriv `docs/adr/0008-bot-service-restclient-oauth2.md`:
 
-```java
-@Component
-public class MentorClient {
-    private final RestClient client;
+```markdown
+# ADR-0008: Bot Service använder RestClient + OAuth2ClientHttpRequestInterceptor
 
-    public MentorClient(@Value("${devroom.bot.nordic-dev-mentor-url}") String url) {
-        this.client = RestClient.builder().baseUrl(url).build();
-    }
+## Status
+Accepted — 2026-05-20
 
-    public String chat(String personality, String question, String senderName) {
-        Map<String, Object> body = Map.of(
-                "personality", personality,
-                "question", question,
-                "sender_name", senderName
-        );
-        Map<String, Object> resp = client.post()
-                .uri("/api/chat")  // anpassa till Nordic Dev Mentors faktiska endpoint
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(body)
-                .retrieve()
-                .body(Map.class);
-        return (String) resp.get("reply");
-    }
-}
+## Context
+Bot Service ska anropa Message Service med en OAuth2-token (Client Credentials).
+Spring Security 7 erbjuder två sätt att integrera token-hämtning i HTTP-klienten:
+
+1. WebClient + `ServletOAuth2AuthorizedClientExchangeFilterFunction` (reactive)
+2. RestClient + `OAuth2ClientHttpRequestInterceptor` (servlet)
+
+## Decision
+Vi använder Variant 2.
+
+## Consequences
+- Konsekvens med Plan 06 (WebMVC-Gateway, ADR-0007) — en mental-modell i hela repot.
+- Ingen transitiv beroende av `spring-webflux` i en pure servlet-tjänst.
+- Mindre kod (interceptor är 3 rader, filter-function är 5).
+- Vid framtida streaming-behov kan vi byta — `RestClient` och `WebClient` har nästan identiska API:er.
+
+## Alternatives considered
+- WebClient: rejected, samma skäl som Gateway WebMVC vs WebFlux (ADR-0007).
+- Manuell token-fetching + caching: rejected — `OAuth2AuthorizedClientService` cachar och refreshar redan korrekt.
 ```
 
-**Variant B — Direkt Java-import:**
-
-```java
-@Component
-public class MentorClient {
-    private final NordicDevMentorService service;  // eller motsvarande klass
-
-    public MentorClient(NordicDevMentorService service) {
-        this.service = service;
-    }
-
-    public String chat(String personality, String question, String senderName) {
-        return service.chat(personality, question, senderName);
-    }
-}
-```
-
-Anpassa baserat på Nordic Dev Mentor-strukturen som upptäcktes i Task 1. Commit.
+Commit: `docs(adr): 0008 bot-service restclient + oauth2 interceptor`
 
 ---
 
-## Task 10: MessagePoster (REST + service-JWT)
+## Task 12: `mvn -B clean verify`
 
-```java
-@Component
-public class MessagePoster {
-    private final RestClient client;
-    private final ServiceTokenProvider tokenProvider;
+Kör från repo-root. Förväntat: alla 17 tidigare tester + 3 nya bot-service-tester = 20 tester gröna. Build-tid <60s.
 
-    public MessagePoster(@Value("${devroom.bot.message-service-url}") String url,
-                          ServiceTokenProvider tokenProvider) {
-        this.client = RestClient.builder().baseUrl(url).build();
-        this.tokenProvider = tokenProvider;
-    }
-
-    public void post(String channelId, String asUserId, String body,
-                      String parentMessageId, String idempotencyKey) {
-        Map<String, Object> req = new HashMap<>();
-        req.put("channelId", channelId);
-        req.put("body", body);
-        req.put("asUserId", asUserId);
-        if (parentMessageId != null) req.put("parentMessageId", parentMessageId);
-
-        client.post()
-                .uri("/messages")
-                .header("Authorization", "Bearer " + tokenProvider.token())
-                .header("Idempotency-Key", "bot-reply-" + idempotencyKey)
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(req)
-                .retrieve()
-                .toBodilessEntity();
-    }
-}
-```
-
-OBS: `Idempotency-Key`-headern är ett mönster vi nämner i specet. Implementation i Message Service är out-of-scope för nu — om duplicering blir ett problem i praktiken adressera det vid testning. För demon räcker det att Bot Service inkluderar headern; Message Service kan utvidgas senare.
-
-Commit.
+Commit (om något justeras): `chore: verify bot-service in full build`
 
 ---
 
-## Task 11: Integration test
+## Task 13: Manuell smoke-test (deferred)
 
-Använd Testcontainers för Postgres + RabbitMQ + WireMock för Nordic Dev Mentor + Message Service. Mockar User Service-gRPC via in-process-server. Verifiera att en publicerad event leder till en POST mot Message Service med rätt payload.
+Kräver:
+1. Postgres + RabbitMQ uppe (`docker compose up`)
+2. Auth + User + Message + Gateway + Bot Service uppe (`mvn spring-boot:run` per service)
+3. dev-mentor uppe på port 8090 (`SERVER_PORT=8090 mvn spring-boot:run` i `~/IdeaProjects/dev-mentor`)
+4. OpenRouter-API-nyckel i `~/IdeaProjects/dev-mentor/.env`
 
-Commit.
+Flöde (genom Gateway efter Plan 06-OAuth2-flödet):
+1. Browser: login mot `http://localhost:8080` → Gateway redirectar till Auth → Auth Code-flöde → session-cookie
+2. POST `/api/messages` med body `"Hej @code-reviewer kan du förklara DI?"`
+3. Vänta ~5s
+4. GET `/api/messages?channelId=...` — verifiera två meddelanden: ditt + bot-svar med `senderId` matchande code-reviewer-UUID
 
----
-
-## Task 12: Manuell smoke-test (full flöde end-to-end)
-
-```bash
-# Starta Nordic Dev Mentor som svart-låda i en separat container/process
-# (eller kör den från ~/IdeaProjects/dev-mentor)
-
-docker compose up -d
-# Starta auth, user, message, bff, bot
-mvn -pl services/auth-service spring-boot:run &
-mvn -pl services/user-service spring-boot:run &
-mvn -pl services/message-service spring-boot:run &
-mvn -pl services/gateway spring-boot:run &
-mvn -pl services/bot-service spring-boot:run &
-sleep 30
-
-# Genom BFF
-RESP=$(curl -s -X POST http://localhost:8080/auth/signup \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"e2e@bot.com","password":"password123"}')
-TOKEN=$(echo $RESP | jq -r .jwt)
-sleep 3
-
-curl -X POST http://localhost:8080/messages \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"channelId":"33333333-3333-3333-3333-333333333301","body":"Hej @code-reviewer kan du förklara DI?"}'
-
-# Vänta på bot-svar
-sleep 8
-
-curl "http://localhost:8080/messages?channelId=33333333-3333-3333-3333-333333333301" \
-  -H "Authorization: Bearer $TOKEN" | jq
-```
-
-Expected: två meddelanden i kanalen — ditt original och ett bot-svar med `senderId` matchande code-reviewer-UUID och `parentMessageId` pekande på ditt original.
-
----
-
-## Task 13: Plan-slut
-
-- [ ] `mvn -B clean verify` passerar
-- [ ] End-to-end mention → bot-svar fungerar lokalt
-- [ ] Bot-svaret hamnar i samma tråd (`parent_message_id` korrekt)
-- [ ] Service-JWT genererad och lagrad i `keys/bot-service.jwt` (utanför git)
+Deferred till Plan 09 (cross-service-tester) — denna plan validerar via integration-test istället.
 
 ---
 
 ## Plan 7 — slut
 
-Vid godkänd verifikation: gå vidare till plan 08 (Frontend).
+Vid godkänd verifikation: merga `plan-07-bot-service` till `main`, sedan ny branch `plan-08-frontend`.

@@ -24,7 +24,7 @@
 ## Aktuell branch och status
 
 ```bash
-git branch    # main + plan-05-message-service (klar, redo för PR)
+git branch    # main + plan-07-bot-service (klar, redo för PR)
 git log --oneline | head -5
 ```
 
@@ -65,9 +65,22 @@ git log --oneline | head -5
 - ADR-0007 skriven: Gateway WebMVC vs WebFlux med trade-offs och future-paths.
 - Task 8 (manuell smoke-test) deferred — kräver Auth Service + Postgres uppe + browser för Authorization Code-flödet. Stegen finns i plan 06.
 
+**Plan 07 (2026-05-20, branch `plan-07-bot-service`, ~10 commits):** Bot Service implementerad som RabbitMQ-consumer som wrappar Nordic Dev Mentor (svart-låda via REST). 3/3 integration-tester gröna (~9s).
+
+- **Plan-revision innan exekvering:** plan-filen var skriven före OAuth2-pivoten (2026-05-12) och dev-mentor-inspektionen — Task 4-5 (pre-issued service-JWT) ersattes av Client Credentials grant, Task 9 Variant A (svart låda) vald över Variant B (direkt-import).
+- **OAuth2 Client Credentials-flödet:** `MessageServiceClientConfig` exponerar `AuthorizedClientServiceOAuth2AuthorizedClientManager` (vi MÅSTE definiera explicit — Boot:s default `DefaultOAuth2AuthorizedClientManager` kräver `HttpServletRequest` i scope som vår RabbitMQ-tråd saknar). `MessagePoster` sätter `.attributes(clientRegistrationId("auth-service"))` + `.attributes(principal("bot-service"))` per call — Spring Security 6.5+ dokumenterad pattern för Client Credentials.
+- **RestClient över WebClient (ADR-0008):** servlet-konsolidering, samma resonemang som ADR-0007. `OAuth2ClientHttpRequestInterceptor` + `RequestAttributePrincipalResolver` istället för `ServletOAuth2AuthorizedClientExchangeFilterFunction`.
+- **HTTP/1.1-tvång (HttpClientConfig):** RestClient default kör HTTP/2 via JdkClientHttpRequestFactory + java.net.http.HttpClient → krockar med WireMock i test (`RST_STREAM: Stream cancelled`). Tvinga `HttpClient.Version.HTTP_1_1` på en gemensam factory-bean. Säkert i prod — Tomcat-baserade services pratar HTTP/1.1 default.
+- **Bot-client i auth-service:** `bot-service` med scope `bot:write` var redan registrerad i `auth-service/application.yml` sedan Plan 02 (default-secret `BOT_CLIENT_SECRET=dev-bot-secret-change-me`). Bot Service:s `application.yml` matchar bara värdena.
+- **Test-arkitektur:** Testcontainers (RabbitMQ) + WireMock som agerar 3 tjänster på samma server (auth OIDC discovery + `/oauth2/token`, dev-mentor `/api/v1/chat`, message-service `/messages`) + in-process gRPC via `@TestConfiguration` `@Primary`-bean. WireMock måste startas i `static{}`-block FÖRE Spring boot:ar (samma mönster som Plan 06).
+- **Konsekvens-vinster i kod:** följer message-service-mönstret för gRPC-stub-bean (`GrpcClientConfig` separerar wiring från användning), user-service-mönstret för RabbitListener (`String json`-parameter), och samma RabbitTopologyConfig-konstant-stil. Bot Service är 19 produktionskällfiler + 1 integration-test.
+- **Idempotency-Key skickas alltid** även om Message Service inte läser den än (`bot-reply-<originalMessageId>`) — framtidssäkring när dedup-filter byggs i Message Service.
+- **Nordic Dev Mentor som svart låda:** dev-mentor är en standalone Spring Boot-app (inte lib), måste startas med `SERVER_PORT=8090` lokalt för att inte kollidera med Gateway. Ingen auth mellan Bot Service och dev-mentor — dev-mentor saknar auth-mekanism (känd limitation deras README).
+- Tasks 12-13 (manuell smoke-test + cross-service-tester) deferred till Plan 09.
+
 **Compose-strategi:** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]` så att `docker compose up` bara startar infra som default.
 
-**Nästa steg:** Merga `plan-06-gateway` till `main`, sedan ny branch `plan-07-bot-service` (Bot Service med Client Credentials grant, konsumerar `message.published` från RabbitMQ, anropar Nordic Dev Mentor, postar svar via Gateway-relay).
+**Nästa steg:** Merga `plan-07-bot-service` till `main`, sedan ny branch `plan-08-frontend` (Next.js 16 / React 19 / TS / Tailwind 4 — `fetch(..., { credentials: 'include' })` mot Gateway, ingen auth-lib, inga tokens i localStorage).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
@@ -105,3 +118,4 @@ git log --oneline | head -5
 - **ADR-0005** Inga foreign keys över databas-gränser.
 - **ADR-0006** Spring gRPC 1.0.3 (officiell Spring-portfolio) istället för `net.devh:grpc-spring-boot-starter` (fast på Boot 3.2.4).
 - **ADR-0007** Spring Cloud Gateway WebMVC-variant istället för WebFlux — konsistens med övriga services (servlet-stack, `SecurityFilterChain`).
+- **ADR-0008** Bot Service använder RestClient + `OAuth2ClientHttpRequestInterceptor` (inte WebClient + filter-function) för Client Credentials — samma servlet-konsolidering som ADR-0007.
