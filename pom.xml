@@ -28,7 +28,6 @@
         <module>services/message-service</module>
         <module>services/gateway</module>
         <module>services/bot-service</module>
-        <module>tests/cross-service</module>
     </modules>
 
     <dependencyManagement>

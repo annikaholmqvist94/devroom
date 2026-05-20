@@ -46,7 +46,7 @@ spring:
     client:
       channels:
         user-service:
-          address: static://localhost:9082
+          address: ${USER_SERVICE_GRPC:static://localhost:9082}
           negotiation-type: plaintext
 
 devroom:

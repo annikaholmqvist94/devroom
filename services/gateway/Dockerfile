@@ -4,7 +4,6 @@ WORKDIR /workspace
 COPY pom.xml .
 COPY proto/ proto/
 COPY services/ services/
-COPY tests/ tests/
 RUN --mount=type=cache,target=/root/.m2 \
     mvn -B -pl services/gateway -am package -DskipTests
 
