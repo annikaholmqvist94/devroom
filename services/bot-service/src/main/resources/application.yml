@@ -1,0 +1,68 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: bot-service
+
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: devroom
+    password: devroom
+    listener:
+      simple:
+        acknowledge-mode: auto
+        prefetch: 5
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1s
+          multiplier: 2.0
+          max-interval: 4s
+
+  # OAuth2 Client Credentials mot Auth Service.
+  # Spring slår automatiskt mot ${issuer-uri}/.well-known/openid-configuration vid bean-skapande
+  # för att hitta token_endpoint. När MessagePoster gör en POST kallar interceptor:n
+  # OAuth2AuthorizedClientManager som hämtar access-token (cachad i OAuth2AuthorizedClientService
+  # tills den expirerar) och sätter Authorization-headern.
+  security:
+    oauth2:
+      client:
+        registration:
+          auth-service:
+            provider: auth-service
+            client-id: bot-service
+            client-secret: ${BOT_CLIENT_SECRET:dev-bot-secret-change-me}
+            authorization-grant-type: client_credentials
+            scope: bot:write
+        provider:
+          auth-service:
+            issuer-uri: ${AUTH_SERVICE_ISSUER:http://localhost:8081}
+
+  # Spring gRPC 1.0.3 (ADR-0006). 'static://' säger att vi inte använder service-discovery
+  # — adressen är fixerad. I K8s blir det 'static://user-service:9082' via env.
+  grpc:
+    client:
+      channels:
+        user-service:
+          address: static://localhost:9082
+          negotiation-type: plaintext
+
+devroom:
+  bot:
+    # Message Service: Bot postar svar via Gateway-relay i prod, men för enkel
+    # service-till-service direkt-anrop i dev/test går vi rakt till message-service.
+    message-service-url: ${MESSAGE_SERVICE_URL:http://localhost:8083}
+    # Nordic Dev Mentor: kör med SERVER_PORT=8090 lokalt för att inte kollidera med Gateway.
+    nordic-dev-mentor-url: ${NORDIC_DEV_MENTOR_URL:http://localhost:8090}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
