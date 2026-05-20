@@ -16,10 +16,11 @@
     <description>BFF/edge — Spring Cloud Gateway med OAuth2 Authorization Code och TokenRelay</description>
 
     <dependencies>
-        <!-- Reactive routing-motor (Project Reactor + Netty). Läser routes från application.yml. -->
+        <!-- Servlet routing-motor (Tomcat). Läser routes från application.yml.
+             WebMVC-varianten vald för konsistens med Auth/User/Message — se ADR-0007. -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-gateway-server-webflux</artifactId>
+            <artifactId>spring-cloud-starter-gateway-server-webmvc</artifactId>
         </dependency>
 
         <!-- OAuth2-klient: Authorization Code-flöde + TokenRelay-filter. -->
@@ -44,11 +45,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>io.projectreactor</groupId>
-            <artifactId>reactor-test</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
