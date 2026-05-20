@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dev-mentor
+  namespace: devroom
+  labels: { app: dev-mentor }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: dev-mentor }
+  template:
+    metadata:
+      labels: { app: dev-mentor }
+    spec:
+      containers:
+      - name: dev-mentor
+        image: devroom/dev-mentor:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8090
+        env:
+        - name: SERVER_PORT
+          value: "8090"
+        - name: DEVMENTOR_STORE_TYPE
+          value: in-memory
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8090
+          initialDelaySeconds: 15
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        resources:
+          requests: { memory: 384Mi, cpu: 100m }
+          limits:   { memory: 768Mi, cpu: 500m }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev-mentor
+  namespace: devroom
+spec:
+  selector: { app: dev-mentor }
+  ports:
+  - port: 8090
+    targetPort: 8090
