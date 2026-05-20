@@ -24,7 +24,7 @@
 ## Aktuell branch och status
 
 ```bash
-git branch    # main + plan-08-frontend (klar, redo för PR)
+git branch    # main + plan-09-cross-service-tests (klar, redo för PR)
 git log --oneline | head -5
 ```
 
@@ -93,7 +93,14 @@ git log --oneline | head -5
 
 **Compose-strategi (oförändrad):** En `docker-compose.yml` med infra (auth-db, user-db, message-db, rabbitmq). Services i Plan 02-07 läggs till med `profiles: [full]`.
 
-**Nästa steg:** Merga `plan-08-frontend` till `main`, sedan Plan 09 (cross-service integration tests) eller manuell smoke-test av frontend mot full stacken (signup → login → mention → bot-svar).
+**Plan 09 (2026-05-20, branch `plan-09-cross-service-tests`):** Maven-modul `tests/cross-service` + en in-process kontrakt-test mellan Auth och User Service. 1/1 tester gröna (~0.6s). `mvn -B clean verify` på hela repot grön på ~54s (18 tester totalt).
+
+- **Pragmatisk minimum-strategi:** plan-filen specade in-process multi-context (starta Auth + User Boot-app i samma JVM) ELLER Docker Compose-baserad e2e via `ComposeContainer`. Båda har konkreta blockare: multi-context kraschar på `application.yml`-classpath-kollision + auto-config-blödning mellan Boot-apparna; Compose-strategin kräver Dockerfiles som hör hemma i Plan 10. Plan-filen själv erbjöd Task 6 "om in-process inte fungerar: bekräfta att service-lokala tester ger täckning + skjut Compose till efter plan 10" — vald.
+- **`UserRegisteredEventContractTest`:** instansierar `SignupService` (Auth) med mockade repos + en äkta `JsonMapper`, fångar `OutboxEvent` via `ArgumentCaptor`, kör payload-JSONet genom `UserRegisteredConsumer.onMessage()` (User) med mockad handler. Asserterar att samma UUID Auth genererade också parsas tillbaka av User-sidan via `node.get("user_id")`. Catch:ar schema-drift som annars först visar sig i prod.
+- **Maven-modul-detaljer:** `tests/cross-service` är en jar-modul med `auth-service` + `user-service` som `test`-scope deps (förhindrar att test-modulen läcker ut i prod-classpath). `[WARNING] JAR will be empty` är förväntad eftersom modulen bara har `src/test` — inte värt jar-plugin-skip-config.
+- **README dokumenterar valet** för framtida bidragare: tre övervägda strategier (in-process multi-context, Compose, kontrakt-test in-process), motivering för val 3, lista över skjutna aktiviteter (full e2e via Compose hör hemma i Plan 10).
+
+**Nästa steg:** Merga `plan-09-cross-service-tests` till `main`, sedan Plan 10 (Kubernetes-deployment via Minikube + Dockerfiles per tjänst + Compose-baserad e2e-test som fyller plan 9:s Task 5).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
