@@ -27,6 +27,7 @@
         <module>services/user-service</module>
         <module>services/message-service</module>
         <module>services/gateway</module>
+        <module>services/bot-service</module>
     </modules>
 
     <dependencyManagement>
