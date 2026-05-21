@@ -23,6 +23,14 @@ spec:
           value: "8090"
         - name: DEVMENTOR_STORE_TYPE
           value: in-memory
+        # API-nyckel till OpenRouter (LLM-provider). Utan denna returnerar
+        # dev-mentor 503 LLM_UNAVAILABLE när Bot Service försöker generera ett svar.
+        # Secret skapas via render-secrets.sh eller manuellt med kubectl create secret.
+        - name: OPENROUTER_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: dev-mentor-secrets
+              key: openrouter-api-key
         readinessProbe:
           httpGet:
             path: /actuator/health/readiness
