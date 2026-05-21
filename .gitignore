@@ -39,3 +39,4 @@ secrets.yaml
 # Logs
 *.log
 logs/
+k8s/secrets/secrets.yaml

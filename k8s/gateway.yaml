@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: devroom
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gateway }
+  template:
+    metadata:
+      labels: { app: gateway }
+    spec:
+      containers:
+      - name: gateway
+        image: devroom/gateway:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8080
+        env:
+        - name: AUTH_SERVICE_ISSUER
+          value: http://auth-service:8081
+        - name: GATEWAY_CLIENT_SECRET
+          valueFrom: { secretKeyRef: { name: oauth-client-secrets, key: gateway-client-secret } }
+        - name: USER_SERVICE_URI
+          value: http://user-service:8082
+        - name: MESSAGE_SERVICE_URI
+          value: http://message-service:8083
+        - name: AUTH_SERVICE_URI
+          value: http://auth-service:8081
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        resources:
+          requests: { memory: 384Mi, cpu: 100m }
+          limits:   { memory: 768Mi, cpu: 500m }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: devroom
+spec:
+  selector: { app: gateway }
+  ports:
+  - port: 8080
+    targetPort: 8080

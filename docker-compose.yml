@@ -67,6 +67,159 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---------------------------------------------------------------
+  # Application services — profile: full
+  # ---------------------------------------------------------------
+  # Default 'docker compose up' startar bara infra ovan (db + rabbitmq).
+  # För hela stacken: docker compose --profile full up --build
+  #
+  # OAuth-caveat: alla services pratar med auth-service via intern Docker-
+  # DNS 'http://auth-service:8081'. För att browser-OAuth-redirecten också
+  # ska fungera lägg till '127.0.0.1 auth-service' i /etc/hosts på din host.
+  # Utan editen fungerar service-till-service (Client Credentials, JWKS,
+  # gRPC) men Authorization Code-flödet från browsern misslyckas.
+  # K8s-deployen via port-forward har inte detta problem.
+  # ---------------------------------------------------------------
+
+  auth-service:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: devroom-auth-service
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/authdb
+      SPRING_DATASOURCE_USERNAME: dbuser
+      SPRING_DATASOURCE_PASSWORD: dbpass
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: devroom
+      SPRING_RABBITMQ_PASSWORD: devroom
+      AUTH_ISSUER_URI: http://auth-service:8081
+      GATEWAY_CLIENT_SECRET: dev-gateway-secret
+      BOT_CLIENT_SECRET: dev-bot-secret
+    ports:
+      - "8081:8081"
+
+  user-service:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: services/user-service/Dockerfile
+    container_name: devroom-user-service
+    depends_on:
+      user-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://user-db:5432/userdb
+      SPRING_DATASOURCE_USERNAME: dbuser
+      SPRING_DATASOURCE_PASSWORD: dbpass
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: devroom
+      SPRING_RABBITMQ_PASSWORD: devroom
+      AUTH_ISSUER_URI: http://auth-service:8081
+
+  message-service:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: services/message-service/Dockerfile
+    container_name: devroom-message-service
+    depends_on:
+      message-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://message-db:5432/messagedb
+      SPRING_DATASOURCE_USERNAME: dbuser
+      SPRING_DATASOURCE_PASSWORD: dbpass
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: devroom
+      SPRING_RABBITMQ_PASSWORD: devroom
+      AUTH_ISSUER_URI: http://auth-service:8081
+      USER_SERVICE_GRPC: static://user-service:9082
+
+  gateway:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: devroom-gateway
+    depends_on:
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      message-service:
+        condition: service_started
+    environment:
+      AUTH_SERVICE_ISSUER: http://auth-service:8081
+      GATEWAY_CLIENT_SECRET: dev-gateway-secret
+      USER_SERVICE_URI: http://user-service:8082
+      MESSAGE_SERVICE_URI: http://message-service:8083
+      AUTH_SERVICE_URI: http://auth-service:8081
+    ports:
+      - "8080:8080"
+
+  bot-service:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: services/bot-service/Dockerfile
+    container_name: devroom-bot-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      user-service:
+        condition: service_started
+      message-service:
+        condition: service_started
+      dev-mentor:
+        condition: service_started
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: devroom
+      SPRING_RABBITMQ_PASSWORD: devroom
+      AUTH_SERVICE_ISSUER: http://auth-service:8081
+      BOT_CLIENT_SECRET: dev-bot-secret
+      MESSAGE_SERVICE_URL: http://message-service:8083
+      NORDIC_DEV_MENTOR_URL: http://dev-mentor:8090
+      USER_SERVICE_GRPC: static://user-service:9082
+
+  dev-mentor:
+    profiles: [full]
+    image: devroom/dev-mentor:latest
+    container_name: devroom-dev-mentor
+    environment:
+      SERVER_PORT: "8090"
+
+  frontend:
+    profiles: [full]
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: devroom-frontend
+    depends_on:
+      gateway:
+        condition: service_started
+    environment:
+      NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
+    ports:
+      - "3000:3000"
+
 volumes:
   auth-db-data:
   user-db-data:

@@ -59,11 +59,14 @@
             <artifactId>spring-boot-resttestclient</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- TestRestTemplateTestAutoConfiguration kräver RestTemplateBuilder härifrån. -->
+        <!-- Spring Cloud Gateway WebMVC 5.0.1 läser org.springframework.boot.http.client.HttpRedirects
+             från denna artifact vid uppstart (Spring Boot 4.0.3+ flyttade klassen från core till
+             -restclient). Måste vara compile-scope så fat-jar:en inkluderar den; test-scope räcker
+             bara för mvn verify men inte för 'java -jar'. Kraschen är NoClassDefFoundError vid
+             GatewayServerMvcAutoConfiguration$GatewayHttpClientEnvironmentPostProcessor. -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-restclient</artifactId>
-            <scope>test</scope>
         </dependency>
 
         <!-- HTTP-mock: ersätter Auth Service:s OIDC discovery + JWKS i test.

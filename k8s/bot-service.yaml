@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot-service
+  namespace: devroom
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: bot-service }
+  template:
+    metadata:
+      labels: { app: bot-service }
+    spec:
+      containers:
+      - name: bot-service
+        image: devroom/bot-service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8084
+        env:
+        - name: SPRING_RABBITMQ_HOST
+          value: rabbitmq
+        - name: SPRING_RABBITMQ_USERNAME
+          valueFrom: { secretKeyRef: { name: rabbitmq-credentials, key: username } }
+        - name: SPRING_RABBITMQ_PASSWORD
+          valueFrom: { secretKeyRef: { name: rabbitmq-credentials, key: password } }
+        - name: AUTH_SERVICE_ISSUER
+          value: http://auth-service:8081
+        - name: BOT_CLIENT_SECRET
+          valueFrom: { secretKeyRef: { name: oauth-client-secrets, key: bot-service-client-secret } }
+        - name: MESSAGE_SERVICE_URL
+          value: http://message-service:8083
+        - name: NORDIC_DEV_MENTOR_URL
+          value: http://dev-mentor:8090
+        - name: USER_SERVICE_GRPC
+          value: static://user-service:9082
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8084
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8084
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        resources:
+          requests: { memory: 384Mi, cpu: 100m }
+          limits:   { memory: 768Mi, cpu: 500m }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bot-service
+  namespace: devroom
+spec:
+  selector: { app: bot-service }
+  ports:
+  - port: 8084
+    targetPort: 8084

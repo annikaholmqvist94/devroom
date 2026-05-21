@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: devroom
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: user-service }
+  template:
+    metadata:
+      labels: { app: user-service }
+    spec:
+      containers:
+      - name: user-service
+        image: devroom/user-service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8082
+          name: http
+        - containerPort: 9082
+          name: grpc
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:postgresql://user-db:5432/userdb
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom: { secretKeyRef: { name: db-credentials, key: username } }
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom: { secretKeyRef: { name: db-credentials, key: password } }
+        - name: SPRING_RABBITMQ_HOST
+          value: rabbitmq
+        - name: SPRING_RABBITMQ_USERNAME
+          valueFrom: { secretKeyRef: { name: rabbitmq-credentials, key: username } }
+        - name: SPRING_RABBITMQ_PASSWORD
+          valueFrom: { secretKeyRef: { name: rabbitmq-credentials, key: password } }
+        - name: AUTH_ISSUER_URI
+          value: http://auth-service:8081
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8082
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        resources:
+          requests: { memory: 512Mi, cpu: 200m }
+          limits:   { memory: 1Gi,   cpu: 1 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: devroom
+spec:
+  selector: { app: user-service }
+  ports:
+  - name: http
+    port: 8082
+    targetPort: 8082
+  - name: grpc
+    port: 9082
+    targetPort: 9082

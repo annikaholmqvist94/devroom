@@ -34,7 +34,7 @@ spring:
           routes:
             # User Service: /api/users/** → http://localhost:8082/users/**
             - id: users
-              uri: http://localhost:8082
+              uri: ${USER_SERVICE_URI:http://localhost:8082}
               predicates:
                 - Path=/api/users/**
               filters:
@@ -43,7 +43,7 @@ spring:
 
             # Message Service: /api/messages/** → http://localhost:8083/messages/**
             - id: messages
-              uri: http://localhost:8083
+              uri: ${MESSAGE_SERVICE_URI:http://localhost:8083}
               predicates:
                 - Path=/api/messages/**
               filters:
@@ -53,7 +53,7 @@ spring:
             # Signup proxas direkt till Auth Service utan auth — användaren
             # är ju inte inloggad än när hen signar upp.
             - id: signup
-              uri: http://localhost:8081
+              uri: ${AUTH_SERVICE_URI:http://localhost:8081}
               predicates:
                 - Path=/signup/**
 

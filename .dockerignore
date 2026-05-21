@@ -1,0 +1,14 @@
+**/target/
+**/node_modules/
+**/.next/
+**/.idea/
+**/.vscode/
+.git/
+.github/
+docs/
+k8s/
+*.md
+.editorconfig
+docker-compose.yml
+.gitignore
+.dockerignore
