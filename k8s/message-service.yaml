@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: message-service
+  namespace: devroom
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: message-service }
+  template:
+    metadata:
+      labels: { app: message-service }
+    spec:
+      containers:
+      - name: message-service
+        image: devroom/message-service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 8083
+        env:
+        - name: SPRING_DATASOURCE_URL
+          value: jdbc:postgresql://message-db:5432/messagedb
+        - name: SPRING_DATASOURCE_USERNAME
+          valueFrom: { secretKeyRef: { name: db-credentials, key: username } }
+        - name: SPRING_DATASOURCE_PASSWORD
+          valueFrom: { secretKeyRef: { name: db-credentials, key: password } }
+        - name: SPRING_RABBITMQ_HOST
+          value: rabbitmq
+        - name: SPRING_RABBITMQ_USERNAME
+          valueFrom: { secretKeyRef: { name: rabbitmq-credentials, key: username } }
+        - name: SPRING_RABBITMQ_PASSWORD
+          valueFrom: { secretKeyRef: { name: rabbitmq-credentials, key: password } }
+        - name: AUTH_ISSUER_URI
+          value: http://auth-service:8081
+        - name: USER_SERVICE_GRPC
+          value: static://user-service:9082
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /actuator/health/liveness
+            port: 8083
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        resources:
+          requests: { memory: 512Mi, cpu: 200m }
+          limits:   { memory: 1Gi,   cpu: 1 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: message-service
+  namespace: devroom
+spec:
+  selector: { app: message-service }
+  ports:
+  - port: 8083
+    targetPort: 8083
