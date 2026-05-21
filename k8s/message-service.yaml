@@ -30,8 +30,10 @@ spec:
           valueFrom: { secretKeyRef: { name: rabbitmq-credentials, key: username } }
         - name: SPRING_RABBITMQ_PASSWORD
           valueFrom: { secretKeyRef: { name: rabbitmq-credentials, key: password } }
-        - name: AUTH_ISSUER_URI
+        - name: AUTH_SERVICE_ISSUER
           value: http://auth-service:8081
+        - name: AUTH_SERVICE_JWKS_URI
+          value: http://auth-service:8081/oauth2/jwks
         - name: USER_SERVICE_GRPC
           value: static://user-service:9082
         readinessProbe:
