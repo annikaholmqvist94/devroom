@@ -32,6 +32,11 @@ public class AuthorizationServerConfig {
 
         http
                 .securityMatcher("/.well-known/**", "/oauth2/**", "/userinfo", "/connect/**", "/login/oauth2/**")
+                // Utan denna rad ger Spring Security en AnonymousAuthenticationToken till
+                // /oauth2/authorize — Spring AS försöker då utfärda en code för anonymous
+                // principal och returnerar 'invalid_request: OAuth 2.0 Parameter: principal'
+                // istället för att redirecta till /login-formuläret.
+                .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
                 .with(configurer, c -> c.oidc(Customizer.withDefaults()))
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/oauth2/**", "/.well-known/**"))
                 .exceptionHandling(exceptions ->
