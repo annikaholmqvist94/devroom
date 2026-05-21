@@ -147,7 +147,8 @@ services:
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: devroom
       SPRING_RABBITMQ_PASSWORD: devroom
-      AUTH_ISSUER_URI: http://auth-service:8081
+      AUTH_SERVICE_ISSUER: http://auth-service:8081
+      AUTH_SERVICE_JWKS_URI: http://auth-service:8081/oauth2/jwks
       USER_SERVICE_GRPC: static://user-service:9082
 
   gateway:
