@@ -48,7 +48,11 @@ public class SecurityConfig {
                 ).permitAll()
                 .anyRequest().authenticated()
             )
-            .oauth2Login(Customizer.withDefaults())
+            // Efter lyckad OAuth-login: redirecta tillbaka till frontend.
+            // Default är '/' på Gateway vilket inte har någon route -> Whitelabel 404.
+            // 'true' = alltid använd denna URL, även om det fanns en savedRequest;
+            // matchar BFF-mönstret där Gateway aldrig är slutdestination.
+            .oauth2Login(login -> login.defaultSuccessUrl("http://localhost:3000/", true))
             .oauth2Client(Customizer.withDefaults())
             .logout(logout -> logout.logoutSuccessHandler(logoutHandler));
 
