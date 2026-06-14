@@ -20,4 +20,15 @@ infra:
       requests: { memory: 256Mi, cpu: 100m }
       limits:   { memory: 512Mi, cpu: 500m }
 
-secrets: {}
+secrets:
+  db-credentials:
+    username: dbuser
+    password: dbpass
+  rabbitmq-credentials:
+    username: devroom
+    password: devroom
+  oauth-client-secrets:
+    gateway-client-secret: dev-gateway-secret
+    bot-service-client-secret: dev-bot-secret
+  dev-mentor-secrets:
+    openrouter-api-key: ""
