@@ -1,0 +1,44 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: devroom-overview-dashboard
+  labels:
+    grafana_dashboard: "1"
+    {{- include "devroom.labels" . | nindent 4 }}
+data:
+  devroom-overview.json: |
+    {
+      "title": "Devroom Overview",
+      "uid": "devroom-overview",
+      "schemaVersion": 39,
+      "version": 1,
+      "time": { "from": "now-30m", "to": "now" },
+      "panels": [
+        {
+          "type": "timeseries", "title": "Messages published / sec",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "expr": "sum(rate(messages_published_total[5m]))", "legendFormat": "messages" } ]
+        },
+        {
+          "type": "timeseries", "title": "Bot replies / sec",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "expr": "sum(rate(bot_replies_total[5m]))", "legendFormat": "bot replies" } ]
+        },
+        {
+          "type": "timeseries", "title": "JVM memory used by service",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "expr": "sum(jvm_memory_used_bytes) by (job)", "legendFormat": "{{`{{job}}`}}" } ]
+        },
+        {
+          "type": "timeseries", "title": "HTTP requests / sec by service",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [ { "expr": "sum(rate(http_server_requests_seconds_count[5m])) by (job)", "legendFormat": "{{`{{job}}`}}" } ]
+        }
+      ]
+    }
+{{- end }}
