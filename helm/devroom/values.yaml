@@ -139,7 +139,10 @@ services:
       requests: { memory: 384Mi, cpu: 100m }
       limits:   { memory: 768Mi, cpu: 500m }
 
-databases: {}
+databases:
+  auth-db:    { database: authdb,    storage: 1Gi }
+  user-db:    { database: userdb,    storage: 1Gi }
+  message-db: { database: messagedb, storage: 1Gi }
 
 infra:
   enabled: true
