@@ -1,0 +1,21 @@
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    {{- include "devroom.labels" $ | nindent 4 }}
+spec:
+  selector:
+    app: {{ $name }}
+  ports:
+  {{- range $svc.ports }}
+  - port: {{ .containerPort }}
+    targetPort: {{ .containerPort }}
+    {{- if .name }}
+    name: {{ .name }}
+    {{- end }}
+  {{- end }}
+{{- end }}
