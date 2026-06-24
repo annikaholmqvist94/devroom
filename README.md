@@ -24,6 +24,7 @@ All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik �
 | 10 | Kubernetes deploy (Dockerfiles + 14 K8s-manifest + deploy.sh + ADR-0009) | 10 | 2026-05-21 |
 | 11 | Helm-chart (generisk service-mall + infra-toggle + ADR-0010) | 11 | 2026-06-24 |
 | 12 | Traefik ingress (CoreDNS split-horizon + ADR-0011) | 12 | 2026-06-24 |
+| 13 | Metrics: Prometheus + Grafana (ServiceMonitor + egna counters + ADR-0012) | 13 | 2026-06-24 |
 
 ## Arkitektur
 
@@ -146,6 +147,24 @@ echo "127.0.0.1 devroom.local auth.devroom.local" | sudo tee -a /etc/hosts
 minikube tunnel               # eget terminalfönster, kräver sudo
 
 # Öppna http://devroom.local — login fungerar utan port-forward
+```
+
+### Metrics med Prometheus + Grafana
+
+Se [ADR-0012](docs/adr/0012-kube-prometheus-stack.md). De 5 Spring-tjänsterna exponerar
+`/actuator/prometheus`; kube-prometheus-stack skrapar dem via en ServiceMonitor, och Grafana
+visar en "Devroom Overview"-dashboard inkl. egna mått `messages_published_total` och
+`bot_replies_total`. Kräver Minikube med minst 8 GB.
+
+```bash
+minikube start --driver=docker --memory=8192 --cpus=4
+bash helm/setup-ingress.sh      # Traefik + CoreDNS (incl. grafana-host)
+bash helm/install-monitoring.sh # kube-prometheus-stack + Grafana-ingress
+bash helm/deploy.sh             # appen (ServiceMonitor + dashboard)
+
+echo "127.0.0.1 grafana.devroom.local" | sudo tee -a /etc/hosts
+minikube tunnel                 # eget fönster
+# Grafana: http://grafana.devroom.local  (admin/admin)
 ```
 
 ### Komponenter under utveckling lokalt

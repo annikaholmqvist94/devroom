@@ -1,6 +1,8 @@
 package com.devroom.message.application;
 
 import com.devroom.message.domain.Message;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.amqp.core.MessageBuilder;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -23,13 +25,18 @@ public class MessageEventPublisher {
     private final RabbitTemplate rabbit;
     private final JsonMapper mapper;
     private final UUID demoTeamId;
+    private final Counter messagesPublished;
 
     public MessageEventPublisher(RabbitTemplate rabbit,
                                   JsonMapper mapper,
-                                  @Value("${devroom.message.demo-team-id}") String demoTeamId) {
+                                  @Value("${devroom.message.demo-team-id}") String demoTeamId,
+                                  MeterRegistry meterRegistry) {
         this.rabbit = rabbit;
         this.mapper = mapper;
         this.demoTeamId = UUID.fromString(demoTeamId);
+        this.messagesPublished = Counter.builder("messages.published")
+                .description("Total messages published to RabbitMQ")
+                .register(meterRegistry);
     }
 
     public void publish(Message message) {
@@ -53,5 +60,6 @@ public class MessageEventPublisher {
                 .setDeliveryMode(MessageDeliveryMode.PERSISTENT)
                 .build();
         rabbit.send(EVENTS_EXCHANGE, MESSAGE_PUBLISHED_ROUTING_KEY, amqp);
+        messagesPublished.increment();
     }
 }

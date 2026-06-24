@@ -6,8 +6,9 @@ global:
 services:
   auth-service:
     image: auth-service
+    metrics: true
     ports:
-      - { containerPort: 8081 }
+      - { name: http, containerPort: 8081 }
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/authdb
       SPRING_RABBITMQ_HOST: rabbitmq
@@ -30,6 +31,7 @@ services:
 
   user-service:
     image: user-service
+    metrics: true
     ports:
       - { name: http, containerPort: 8082 }
       - { name: grpc, containerPort: 9082 }
@@ -51,8 +53,9 @@ services:
 
   message-service:
     image: message-service
+    metrics: true
     ports:
-      - { containerPort: 8083 }
+      - { name: http, containerPort: 8083 }
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://message-db:5432/messagedb
       SPRING_RABBITMQ_HOST: rabbitmq
@@ -73,8 +76,9 @@ services:
 
   gateway:
     image: gateway
+    metrics: true
     ports:
-      - { containerPort: 8080 }
+      - { name: http, containerPort: 8080 }
     env:
       AUTH_SERVICE_ISSUER: http://auth.devroom.local
       GATEWAY_FRONTEND_URL: http://devroom.local
@@ -92,8 +96,9 @@ services:
 
   bot-service:
     image: bot-service
+    metrics: true
     ports:
-      - { containerPort: 8084 }
+      - { name: http, containerPort: 8084 }
     env:
       SPRING_RABBITMQ_HOST: rabbitmq
       AUTH_SERVICE_ISSUER: http://auth.devroom.local
@@ -177,3 +182,6 @@ ingress:
   className: traefik
   host: devroom.local
   authHost: auth.devroom.local
+
+metrics:
+  enabled: true
