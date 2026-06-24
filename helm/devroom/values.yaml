@@ -11,7 +11,9 @@ services:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/authdb
       SPRING_RABBITMQ_HOST: rabbitmq
-      AUTH_ISSUER_URI: http://auth-service:8081
+      AUTH_ISSUER_URI: http://auth.devroom.local
+      GATEWAY_REDIRECT_URI: http://devroom.local/login/oauth2/code/auth-service
+      FRONTEND_REDIRECT_URI: http://devroom.local/
     secretEnv:
       - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
       - { name: SPRING_DATASOURCE_PASSWORD, secret: db-credentials, key: password }
@@ -34,7 +36,7 @@ services:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://user-db:5432/userdb
       SPRING_RABBITMQ_HOST: rabbitmq
-      AUTH_ISSUER_URI: http://auth-service:8081
+      AUTH_ISSUER_URI: http://auth.devroom.local
     secretEnv:
       - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
       - { name: SPRING_DATASOURCE_PASSWORD, secret: db-credentials, key: password }
@@ -54,8 +56,8 @@ services:
     env:
       SPRING_DATASOURCE_URL: jdbc:postgresql://message-db:5432/messagedb
       SPRING_RABBITMQ_HOST: rabbitmq
-      AUTH_SERVICE_ISSUER: http://auth-service:8081
-      AUTH_SERVICE_JWKS_URI: http://auth-service:8081/oauth2/jwks
+      AUTH_SERVICE_ISSUER: http://auth.devroom.local
+      AUTH_SERVICE_JWKS_URI: http://auth.devroom.local/oauth2/jwks
       USER_SERVICE_GRPC: static://user-service:9082
     secretEnv:
       - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
@@ -74,7 +76,8 @@ services:
     ports:
       - { containerPort: 8080 }
     env:
-      AUTH_SERVICE_ISSUER: http://auth-service:8081
+      AUTH_SERVICE_ISSUER: http://auth.devroom.local
+      GATEWAY_FRONTEND_URL: http://devroom.local
       USER_SERVICE_URI: http://user-service:8082
       MESSAGE_SERVICE_URI: http://message-service:8083
       AUTH_SERVICE_URI: http://auth-service:8081
@@ -93,7 +96,7 @@ services:
       - { containerPort: 8084 }
     env:
       SPRING_RABBITMQ_HOST: rabbitmq
-      AUTH_SERVICE_ISSUER: http://auth-service:8081
+      AUTH_SERVICE_ISSUER: http://auth.devroom.local
       MESSAGE_SERVICE_URL: http://message-service:8083
       NORDIC_DEV_MENTOR_URL: http://dev-mentor:8090
       USER_SERVICE_GRPC: static://user-service:9082
@@ -113,7 +116,6 @@ services:
     ports:
       - { containerPort: 3000 }
     env:
-      NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
       HOSTNAME: "0.0.0.0"
       PORT: "3000"
     probe:
