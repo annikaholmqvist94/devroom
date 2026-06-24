@@ -23,6 +23,7 @@ All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik �
 | 9 | Cross-service contract test → superseded by Plan 10's full e2e | 09 | 2026-05-20 |
 | 10 | Kubernetes deploy (Dockerfiles + 14 K8s-manifest + deploy.sh + ADR-0009) | 10 | 2026-05-21 |
 | 11 | Helm-chart (generisk service-mall + infra-toggle + ADR-0010) | 11 | 2026-06-24 |
+| 12 | Traefik ingress (CoreDNS split-horizon + ADR-0011) | 12 | 2026-06-24 |
 
 ## Arkitektur
 
@@ -129,6 +130,23 @@ Port-forward-kommandona skrivs ut i NOTES efter install. Tear-down:
 
 > Migrerar du från en tidigare rå `k8s/deploy.sh`-deploy: kör först
 > `kubectl delete namespace devroom` — Helm tar inte över objekt den inte själv skapat.
+
+### Ingress med Traefik (rekommenderad åtkomst)
+
+Ersätter port-forward med en riktig ingress (se [ADR-0011](docs/adr/0011-traefik-ingress.md)).
+Hela stacken nås via `http://devroom.local`, och browser-login fungerar end-to-end —
+issuern (`http://auth.devroom.local`) är samma URL i browsern och i klustret tack vare en
+CoreDNS split-horizon-rewrite.
+
+```bash
+bash helm/setup-ingress.sh    # FÖRST: installerar Traefik + patchar CoreDNS
+bash helm/deploy.sh           # SEN: deploya appen (når issuern från start)
+
+echo "127.0.0.1 devroom.local auth.devroom.local" | sudo tee -a /etc/hosts
+minikube tunnel               # eget terminalfönster, kräver sudo
+
+# Öppna http://devroom.local — login fungerar utan port-forward
+```
 
 ### Komponenter under utveckling lokalt
 

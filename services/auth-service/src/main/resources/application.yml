@@ -44,9 +44,9 @@ spring:
                 - authorization_code
                 - refresh_token
               redirect-uris:
-                - "http://localhost:8080/login/oauth2/code/auth-service"
+                - "${GATEWAY_REDIRECT_URI:http://localhost:8080/login/oauth2/code/auth-service}"
               post-logout-redirect-uris:
-                - "http://localhost:3000/"
+                - "${FRONTEND_REDIRECT_URI:http://localhost:3000/}"
               scopes:
                 - openid
                 - profile

@@ -2,6 +2,7 @@ package com.devroom.gateway.config;
 
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -17,6 +18,9 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    @Value("${gateway.frontend-url:http://localhost:3000}")
+    private String frontendUrl;
+
     /**
      * Servlet-baserad SecurityFilterChain (se ADR-0007). Kedjan:
      *   1. CORS pre-flight släpps igenom utan auth.
@@ -30,7 +34,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         SimpleUrlLogoutSuccessHandler logoutHandler = new SimpleUrlLogoutSuccessHandler();
-        logoutHandler.setDefaultTargetUrl("http://localhost:3000");
+        logoutHandler.setDefaultTargetUrl(frontendUrl + "/");
 
         http
             .cors(Customizer.withDefaults())
@@ -52,7 +56,7 @@ public class SecurityConfig {
             // Default är '/' på Gateway vilket inte har någon route -> Whitelabel 404.
             // 'true' = alltid använd denna URL, även om det fanns en savedRequest;
             // matchar BFF-mönstret där Gateway aldrig är slutdestination.
-            .oauth2Login(login -> login.defaultSuccessUrl("http://localhost:3000/", true))
+            .oauth2Login(login -> login.defaultSuccessUrl(frontendUrl + "/", true))
             .oauth2Client(Customizer.withDefaults())
             .logout(logout -> logout.logoutSuccessHandler(logoutHandler));
 
@@ -68,7 +72,7 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:3000"));
+        config.setAllowedOrigins(List.of(frontendUrl));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

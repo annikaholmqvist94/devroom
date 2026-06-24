@@ -123,7 +123,17 @@ git log --oneline | head -5
 - **CI:** nytt `helm`-jobb i `ci.yml` (`helm lint` + `helm template`) parallellt med `build`.
 - **ADR-0010 skriven:** Helm vs Kustomize vs envsubst.
 
-**Nästa steg:** Merga `plan-11-helm-chart` till `main` via PR. Sedan Plan 12 (Traefik ingress, ersätter port-forward/ADR-0009).
+**Plan 12 (2026-06-24, branch `plan-12-traefik-ingress`):** Traefik ingress ersätter `kubectl port-forward`. Hela stacken nås via två hostnamn — `devroom.local` (frontend + gateway) och `auth.devroom.local` (auth-server) — och issuern är nu EN konsekvent URL (`http://auth.devroom.local`) både i browsern och i poddarna. Löser issuer-knuten som ADR-0009 sköt upp. Andra och sista planen i Fas A.
+
+- **Standard `Ingress` i chartet** (`templates/ingress.yaml`, bakom `ingress.enabled`-toggle) — inte Traefiks `IngressRoute`-CRD, för portabilitet mot AWS ALB i Fas D. Host-baserad routing: `/api`, `/oauth2/authorization`, `/login`, `/logout`, `/signup` → gateway; `/` → frontend; auth-subdomän → auth-service. Subdomän undviker `/oauth2`- och `/login`-kollision mellan gateway och auth-server.
+- **CoreDNS split-horizon (kärnan):** `helm/configure-dns.sh` lägger en `rewrite name {devroom.local,auth.devroom.local} traefik.traefik.svc.cluster.local` i CoreDNS ConfigMap. Då resolvar poddar samma hostnamn → Traefik internt, så OIDC-discovery/JWKS når issuern via samma namn browsern använder.
+- **Traefik som egen Helm-release** (`helm/install-traefik.sh`, chart 41.0.0 / app v3.7.5, eget namespace). `helm/setup-ingress.sh` orkestrerar Traefik + CoreDNS; körs FÖRE `deploy.sh` så pods når issuern från första boot.
+- **Tre app-konfig-ändringar:** auth-serverns `redirect-uris`/`post-logout` env-drivna (`${GATEWAY_REDIRECT_URI:...}` / `${FRONTEND_REDIRECT_URI:...}`); gateways `SecurityConfig.java` env-driver frontend-URL via `@Value("${gateway.frontend-url:...}")` (CORS + 2 redirects); frontend `lib/api.ts` defaultar `GATEWAY_URL` till `""` → relativa same-origin-anrop.
+- **Frontend-gotcha (lärdom utöver planen):** `NEXT_PUBLIC_*` bakas in vid build-time och `.env.local` (localhost:8080, för split-dev) vinner över kod-defaulten. Dockerfilen `COPY frontend/ ./` saknade `.dockerignore` → imagen skulle bakat in localhost:8080 och brutit ingress-login. Fix: Dockerfilen sätter `ARG/ENV NEXT_PUBLIC_GATEWAY_URL=` (tom) — riktig `process.env` har företräde över `.env.local` i Next.js. Verifierat: rent bygge utan localhost:8080, login-länk relativ.
+- **Verifiering:** `helm lint`/`template` gröna. Live på Minikube: setup-ingress (Traefik + CoreDNS) → deploy → alla 7 tjänster rullade ut friska med ny issuer (bevisar att eager OIDC-discovery mot `auth.devroom.local` lyckas vid uppstart), och in-pod-test `curl http://auth.devroom.local/oauth2/jwks` → 200 (split-horizon bekräftad inifrån). **Externt curl + browser-login uppsköt** (kräver `/etc/hosts` + `minikube tunnel`, sudo) — ej kört denna session.
+- **ADR-0011 skriven:** Traefik + standard Ingress + CoreDNS split-horizon; avlöser ADR-0009 som primär access-väg.
+
+**Nästa steg:** Merga `plan-12-traefik-ingress` till `main` via PR. Sedan börjar **Fas B (observability)** med Plan 13 (Prometheus + Grafana för metrics).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 

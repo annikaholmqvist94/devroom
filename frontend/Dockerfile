@@ -5,6 +5,11 @@ COPY frontend/package.json frontend/package-lock.json* ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 COPY frontend/ ./
+# Image-bygget använder relativa same-origin-anrop (frontend + gateway delar
+# ingress-host). Sätts som riktig env-var → har företräde framför en ev.
+# medkopierad .env.local. Override:bar med --build-arg för andra deploys.
+ARG NEXT_PUBLIC_GATEWAY_URL=
+ENV NEXT_PUBLIC_GATEWAY_URL=${NEXT_PUBLIC_GATEWAY_URL}
 RUN npm run build
 
 FROM node:22-alpine AS runtime
