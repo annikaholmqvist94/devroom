@@ -28,3 +28,19 @@ jobs:
         with:
           name: test-reports
           path: '**/target/surefire-reports/*.xml'
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.0
+
+      - name: Helm lint
+        run: helm lint helm/devroom
+
+      - name: Helm template (render check)
+        run: helm template devroom helm/devroom > /dev/null
