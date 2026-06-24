@@ -112,7 +112,18 @@ git log --oneline | head -5
 - **bash-tool zsh-fälla (lärdom):** Per-call shell betyder `eval "$(minikube docker-env)"` inte persisterar mellan Bash-anrop. Bygger man image i ett anrop och kör `docker images` i nästa kan de peka mot olika Docker-daemons. Lösning: chain:a `eval ... && docker build ...` i samma anrop.
 - **ADR-0009 skriven:** Minikube + port-forward över ingress controller, LoadBalancer eller NodePort. Trade-offs explicit dokumenterade.
 
-**Nästa steg:** Merga `plan-10-kubernetes` till `main` via PR. Devroom är komplett — alla 10 planer klara, hela stacken körbar både via docker compose och Minikube.
+**Plan 11 (2026-06-14, branch `plan-11-helm-chart`):** Råa `k8s/*.yaml` paketerade till ett Helm-chart (`helm/devroom`). Deploy verifierad end-to-end på Minikube: 11 pods Running, 8 deployments available, smoke-tester gröna (frontend 200, gateway /api/me 401, auth issuer `http://auth-service:8081`), helm-release idempotent (revision 2 utan biverkningar). Första planen i DevOps-roadmappen (Fas A–D: Helm → Traefik → Grafana-stack → CI/CD → AWS/EKS).
+
+- **Chart-arkitektur:** ETT chart med en generisk service-mall (`app-deployment.yaml` + `app-service.yaml`) som loopar `range` över `.Values.services` → 7 tjänster ur en mall. `secret.yaml` loopar över `.Values.secrets` → 4 Secrets. Infra (3 Postgres-StatefulSets + RabbitMQ) bakom `infra.enabled`-toggle. `_helpers.tpl` ger delade labels. Helm 4.2.1 lokalt (chart `apiVersion: v2`, bakåtkompatibelt med Helm 3).
+- **Portabilitet (payoff Fas D):** `global.imageRegistry/imageTag/imagePullPolicy` parametriserar miljö-skillnaderna. `infra.enabled: false` → RDS/Amazon MQ utan att röra mallarna. Samma chart Minikube ↔ EKS.
+- **Secrets:** Helm-mall med dev-defaults i `values.yaml` (matchar gamla `render-secrets.sh`), riktiga värden via `--set` eller gitignorerad `values-secrets.yaml`. `openrouter-api-key` tom default → NOTES.txt-varning via `if not (index ...)` (dot-notation funkar ej på map-nycklar med bindestreck).
+- **Startordning:** ingen orkestrering — readiness-probes + app-retry. Verifierat i deployen: bot-service + gateway studsade en gång (RESTARTS 1) och självläkte när auth blev redo. Ersätter `deploy.sh`:s `kubectl wait`-gating.
+- **Migrerings-gotcha (lärdom):** Plan 10:s råa `kubectl apply`-deploy låg kvar i `devroom`-namespacet (33 dagar, överlevde minikube stop/start). Helm vägrade installera — `missing key app.kubernetes.io/managed-by: must be set to Helm`. Helm äger bara objekt den själv märkt. Fix: `kubectl delete namespace devroom` → ren Helm-install. Bekräftar ADR-0010:s konsekvens att råa manifest pensioneras.
+- **`helm/deploy.sh`:** bygger 7 images i Minikubes Docker + `helm upgrade --install --create-namespace`, plockar upp `values-secrets.yaml`/`OPENROUTER_API_KEY` om de finns. Ersätter `k8s/deploy.sh` som primär väg; råa `k8s/*.yaml` behålls som referens.
+- **CI:** nytt `helm`-jobb i `ci.yml` (`helm lint` + `helm template`) parallellt med `build`.
+- **ADR-0010 skriven:** Helm vs Kustomize vs envsubst.
+
+**Nästa steg:** Merga `plan-11-helm-chart` till `main` via PR. Sedan Plan 12 (Traefik ingress, ersätter port-forward/ADR-0009).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
