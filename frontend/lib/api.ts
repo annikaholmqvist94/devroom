@@ -1,5 +1,8 @@
+// Default "" → relativa same-origin-anrop (frontend + gateway delar ingress-host).
+// Override med NEXT_PUBLIC_GATEWAY_URL för split-origin lokal dev (npm run dev mot
+// en port-forwardad gateway på :8080).
 export const GATEWAY_URL =
-  process.env.NEXT_PUBLIC_GATEWAY_URL ?? "http://localhost:8080";
+  process.env.NEXT_PUBLIC_GATEWAY_URL ?? "";
 
 export class ApiError extends Error {
   constructor(public readonly status: number, message: string) {
