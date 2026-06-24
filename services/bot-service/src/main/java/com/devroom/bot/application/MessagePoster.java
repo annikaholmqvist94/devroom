@@ -1,5 +1,7 @@
 package com.devroom.bot.application;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -30,9 +32,13 @@ public class MessagePoster {
     private static final String CLIENT_PRINCIPAL = "bot-service";
 
     private final RestClient client;
+    private final Counter botReplies;
 
-    public MessagePoster(RestClient messageServiceRestClient) {
+    public MessagePoster(RestClient messageServiceRestClient, MeterRegistry meterRegistry) {
         this.client = messageServiceRestClient;
+        this.botReplies = Counter.builder("bot.replies")
+                .description("Total replies posted by the bot")
+                .register(meterRegistry);
     }
 
     public void post(String channelId, String asUserId, String body,
@@ -50,6 +56,7 @@ public class MessagePoster {
                 .toBodilessEntity();
 
         log.info("Posted bot reply as {} to channel {}", asUserId, channelId);
+        botReplies.increment();
     }
 
     record PostMessageBody(String channelId, String body, String parentMessageId, String asUserId) {}
