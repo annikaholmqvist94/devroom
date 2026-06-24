@@ -133,7 +133,18 @@ git log --oneline | head -5
 - **Verifiering:** `helm lint`/`template` gröna. Live på Minikube: setup-ingress (Traefik + CoreDNS) → deploy → alla 7 tjänster rullade ut friska med ny issuer (bevisar att eager OIDC-discovery mot `auth.devroom.local` lyckas vid uppstart), och in-pod-test `curl http://auth.devroom.local/oauth2/jwks` → 200 (split-horizon bekräftad inifrån). **Externt curl + browser-login uppsköt** (kräver `/etc/hosts` + `minikube tunnel`, sudo) — ej kört denna session.
 - **ADR-0011 skriven:** Traefik + standard Ingress + CoreDNS split-horizon; avlöser ADR-0009 som primär access-väg.
 
-**Nästa steg:** Merga `plan-12-traefik-ingress` till `main` via PR. Sedan börjar **Fas B (observability)** med Plan 13 (Prometheus + Grafana för metrics).
+**Plan 13 (2026-06-24, branch `plan-13-prometheus-grafana`):** Metrics-observability. De 5 Spring-tjänsterna exponerar `/actuator/prometheus`, kube-prometheus-stack skrapar via en ServiceMonitor, och Grafana visar en "Devroom Overview"-dashboard på `grafana.devroom.local`. Första planen i Fas B.
+
+- **Metrics-exponering:** `micrometer-registry-prometheus` (runtime) lagt per service-pom (matchar actuator-mönstret, ej parent-POM) + `prometheus` i `management.endpoints.web.exposure.include` på alla 5.
+- **Egna domän-counters (TDD):** `messages.published` i `MessageEventPublisher` och `bot.replies` i `MessagePoster` — exponeras som `messages_published_total` / `bot_replies_total` (Micrometer: punkt→understreck, counters får `_total`-suffix). Båda med unit-test rött→grönt.
+- **MessagePoster-test-lärdom:** `RETURNS_DEEP_STUBS` funkar INTE på RestClient:s F-bundna fluent-API (self-returnerande generics → null). Lösning: explicit mock-kedja, och `body(any(Object.class))` för att disambiguera den överlagrade `body()`.
+- **Chart-wiring:** `metrics: true`-flagga + namngiven `http`-port på de 5 Spring-tjänsterna; `app-service.yaml` sätter label `devroom.io/metrics: "true"` villkorligt (frontend/dev-mentor exkluderade). `templates/servicemonitor.yaml` selekterar labeln, skrapar `http` `/actuator/prometheus` var 15s. `templates/grafana-dashboard.yaml` = ConfigMap med `grafana_dashboard: "1"` (sidecar auto-laddar), 4 paneler. Allt bakom `metrics.enabled`.
+- **kube-prometheus-stack** (chart 87.1.0) som egen release i `monitoring` via `helm/install-monitoring.sh`: Grafana-ingress (`grafana.devroom.local`, admin/admin), `grafana.sidecar.dashboards.searchNamespace=ALL`, `serviceMonitorSelectorNilUsesHelmValues=false` (plockar upp vår ServiceMonitor).
+- **CoreDNS:** `configure-dns.sh` utökad med `grafana.devroom.local` (tredje host), gjord idempotent (strippar gamla devroom-rewrites före re-injektion).
+- **Installordning:** `setup-ingress.sh` (Traefik+CoreDNS) → `install-monitoring.sh` (CRDs + Grafana-ingress) → `deploy.sh` (ServiceMonitor kräver CRD:n). Minikube behöver 8 GB.
+- **Verifierat:** unit-tester gröna (message-service + bot-service inkl. de nya counter-testerna), `helm lint`/`template` gröna, ServiceMonitor + dashboard-JSON renderar korrekt. ADR-0012 skriven.
+
+**Nästa steg:** Merga `plan-13-prometheus-grafana` till `main` via PR. Sedan Plan 14 (Loki — loggaggregering in i samma Grafana).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
