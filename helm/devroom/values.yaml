@@ -1,0 +1,171 @@
+global:
+  imageRegistry: devroom
+  imageTag: latest
+  imagePullPolicy: Never
+
+services:
+  auth-service:
+    image: auth-service
+    ports:
+      - { containerPort: 8081 }
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/authdb
+      SPRING_RABBITMQ_HOST: rabbitmq
+      AUTH_ISSUER_URI: http://auth-service:8081
+    secretEnv:
+      - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
+      - { name: SPRING_DATASOURCE_PASSWORD, secret: db-credentials, key: password }
+      - { name: SPRING_RABBITMQ_USERNAME, secret: rabbitmq-credentials, key: username }
+      - { name: SPRING_RABBITMQ_PASSWORD, secret: rabbitmq-credentials, key: password }
+      - { name: GATEWAY_CLIENT_SECRET, secret: oauth-client-secrets, key: gateway-client-secret }
+      - { name: BOT_CLIENT_SECRET, secret: oauth-client-secrets, key: bot-service-client-secret }
+    probe:
+      readiness: { path: /actuator/health/readiness, port: 8081, initialDelaySeconds: 30, periodSeconds: 5 }
+      liveness:  { path: /actuator/health/liveness,  port: 8081, initialDelaySeconds: 60, periodSeconds: 10 }
+    resources:
+      requests: { memory: 512Mi, cpu: 200m }
+      limits:   { memory: 1Gi,   cpu: 1 }
+
+  user-service:
+    image: user-service
+    ports:
+      - { name: http, containerPort: 8082 }
+      - { name: grpc, containerPort: 9082 }
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://user-db:5432/userdb
+      SPRING_RABBITMQ_HOST: rabbitmq
+      AUTH_ISSUER_URI: http://auth-service:8081
+    secretEnv:
+      - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
+      - { name: SPRING_DATASOURCE_PASSWORD, secret: db-credentials, key: password }
+      - { name: SPRING_RABBITMQ_USERNAME, secret: rabbitmq-credentials, key: username }
+      - { name: SPRING_RABBITMQ_PASSWORD, secret: rabbitmq-credentials, key: password }
+    probe:
+      readiness: { path: /actuator/health/readiness, port: 8082, initialDelaySeconds: 30, periodSeconds: 5 }
+      liveness:  { path: /actuator/health/liveness,  port: 8082, initialDelaySeconds: 60, periodSeconds: 10 }
+    resources:
+      requests: { memory: 512Mi, cpu: 200m }
+      limits:   { memory: 1Gi,   cpu: 1 }
+
+  message-service:
+    image: message-service
+    ports:
+      - { containerPort: 8083 }
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://message-db:5432/messagedb
+      SPRING_RABBITMQ_HOST: rabbitmq
+      AUTH_SERVICE_ISSUER: http://auth-service:8081
+      AUTH_SERVICE_JWKS_URI: http://auth-service:8081/oauth2/jwks
+      USER_SERVICE_GRPC: static://user-service:9082
+    secretEnv:
+      - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
+      - { name: SPRING_DATASOURCE_PASSWORD, secret: db-credentials, key: password }
+      - { name: SPRING_RABBITMQ_USERNAME, secret: rabbitmq-credentials, key: username }
+      - { name: SPRING_RABBITMQ_PASSWORD, secret: rabbitmq-credentials, key: password }
+    probe:
+      readiness: { path: /actuator/health/readiness, port: 8083, initialDelaySeconds: 30, periodSeconds: 5 }
+      liveness:  { path: /actuator/health/liveness,  port: 8083, initialDelaySeconds: 60, periodSeconds: 10 }
+    resources:
+      requests: { memory: 512Mi, cpu: 200m }
+      limits:   { memory: 1Gi,   cpu: 1 }
+
+  gateway:
+    image: gateway
+    ports:
+      - { containerPort: 8080 }
+    env:
+      AUTH_SERVICE_ISSUER: http://auth-service:8081
+      USER_SERVICE_URI: http://user-service:8082
+      MESSAGE_SERVICE_URI: http://message-service:8083
+      AUTH_SERVICE_URI: http://auth-service:8081
+    secretEnv:
+      - { name: GATEWAY_CLIENT_SECRET, secret: oauth-client-secrets, key: gateway-client-secret }
+    probe:
+      readiness: { path: /actuator/health/readiness, port: 8080, initialDelaySeconds: 30, periodSeconds: 5 }
+      liveness:  { path: /actuator/health/liveness,  port: 8080, initialDelaySeconds: 60, periodSeconds: 10 }
+    resources:
+      requests: { memory: 384Mi, cpu: 100m }
+      limits:   { memory: 768Mi, cpu: 500m }
+
+  bot-service:
+    image: bot-service
+    ports:
+      - { containerPort: 8084 }
+    env:
+      SPRING_RABBITMQ_HOST: rabbitmq
+      AUTH_SERVICE_ISSUER: http://auth-service:8081
+      MESSAGE_SERVICE_URL: http://message-service:8083
+      NORDIC_DEV_MENTOR_URL: http://dev-mentor:8090
+      USER_SERVICE_GRPC: static://user-service:9082
+    secretEnv:
+      - { name: SPRING_RABBITMQ_USERNAME, secret: rabbitmq-credentials, key: username }
+      - { name: SPRING_RABBITMQ_PASSWORD, secret: rabbitmq-credentials, key: password }
+      - { name: BOT_CLIENT_SECRET, secret: oauth-client-secrets, key: bot-service-client-secret }
+    probe:
+      readiness: { path: /actuator/health/readiness, port: 8084, initialDelaySeconds: 30, periodSeconds: 5 }
+      liveness:  { path: /actuator/health/liveness,  port: 8084, initialDelaySeconds: 60, periodSeconds: 10 }
+    resources:
+      requests: { memory: 384Mi, cpu: 100m }
+      limits:   { memory: 768Mi, cpu: 500m }
+
+  frontend:
+    image: frontend
+    ports:
+      - { containerPort: 3000 }
+    env:
+      NEXT_PUBLIC_GATEWAY_URL: http://localhost:8080
+      HOSTNAME: "0.0.0.0"
+      PORT: "3000"
+    probe:
+      readiness: { path: /, port: 3000, initialDelaySeconds: 10, periodSeconds: 5 }
+      liveness:  { path: /, port: 3000, initialDelaySeconds: 30, periodSeconds: 10 }
+    resources:
+      requests: { memory: 128Mi, cpu: 50m }
+      limits:   { memory: 384Mi, cpu: 500m }
+
+  dev-mentor:
+    image: dev-mentor
+    ports:
+      - { containerPort: 8090 }
+    env:
+      SERVER_PORT: "8090"
+      DEVMENTOR_STORE_TYPE: in-memory
+    secretEnv:
+      - { name: OPENROUTER_API_KEY, secret: dev-mentor-secrets, key: openrouter-api-key }
+    probe:
+      readiness: { path: /actuator/health/readiness, port: 8090, initialDelaySeconds: 15, periodSeconds: 5 }
+      liveness:  { path: /actuator/health/liveness,  port: 8090, initialDelaySeconds: 30, periodSeconds: 10 }
+    resources:
+      requests: { memory: 384Mi, cpu: 100m }
+      limits:   { memory: 768Mi, cpu: 500m }
+
+databases:
+  auth-db:    { database: authdb,    storage: 1Gi }
+  user-db:    { database: userdb,    storage: 1Gi }
+  message-db: { database: messagedb, storage: 1Gi }
+
+infra:
+  enabled: true
+  postgres:
+    image: postgres:16-alpine
+    resources:
+      requests: { memory: 256Mi, cpu: 100m }
+      limits:   { memory: 512Mi, cpu: 500m }
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    resources:
+      requests: { memory: 256Mi, cpu: 100m }
+      limits:   { memory: 512Mi, cpu: 500m }
+
+secrets:
+  db-credentials:
+    username: dbuser
+    password: dbpass
+  rabbitmq-credentials:
+    username: devroom
+    password: devroom
+  oauth-client-secrets:
+    gateway-client-secret: dev-gateway-secret
+    bot-service-client-secret: dev-bot-secret
+  dev-mentor-secrets:
+    openrouter-api-key: ""

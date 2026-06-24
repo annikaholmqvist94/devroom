@@ -1,0 +1,20 @@
+{{- if .Values.infra.enabled }}
+{{- range $name, $db := .Values.databases }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ $name }}
+    {{- include "devroom.labels" $ | nindent 4 }}
+spec:
+  selector:
+    app: {{ $name }}
+  clusterIP: None
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+{{- end }}
+{{- end }}

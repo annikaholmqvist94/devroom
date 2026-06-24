@@ -40,3 +40,6 @@ secrets.yaml
 *.log
 logs/
 k8s/secrets/secrets.yaml
+
+# Real Helm secret values (dev defaults live in helm/devroom/values.yaml)
+helm/devroom/values-secrets.yaml

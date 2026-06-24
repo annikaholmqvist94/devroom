@@ -8,7 +8,7 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md) for the f
 
 ## Status
 
-All ten plans complete.
+All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik → observability → CI/CD → AWS).
 
 | # | Komponent | Plan | Klar |
 |---|---|---|---|
@@ -22,6 +22,7 @@ All ten plans complete.
 | 8 | Frontend (Next.js 16, Tailwind 4, cookie-baserad auth) | 08 | 2026-05-20 |
 | 9 | Cross-service contract test → superseded by Plan 10's full e2e | 09 | 2026-05-20 |
 | 10 | Kubernetes deploy (Dockerfiles + 14 K8s-manifest + deploy.sh + ADR-0009) | 10 | 2026-05-21 |
+| 11 | Helm-chart (generisk service-mall + infra-toggle + ADR-0010) | 11 | 2026-06-24 |
 
 ## Arkitektur
 
@@ -106,6 +107,28 @@ kubectl port-forward -n devroom svc/rabbitmq    15672:15672 &
 14 K8s-manifest i rätt ordning, och väntar på readiness mellan stegen.
 
 Tear-down: `kubectl delete namespace devroom`.
+
+### På Minikube med Helm (rekommenderat)
+
+De råa manifesten är paketerade som ett Helm-chart (`helm/devroom`, se
+[ADR-0010](docs/adr/0010-helm-vs-kustomize.md)). Samma chart deployar till både
+Minikube och senare EKS genom att byta `values`.
+
+```bash
+minikube start --driver=docker --memory=6144 --cpus=4
+bash helm/deploy.sh           # bygger 7 images + helm upgrade --install
+
+# Bot-svar kräver en LLM-nyckel (annars startar allt men boten svarar 503):
+#   OPENROUTER_API_KEY=sk-... bash helm/deploy.sh
+```
+
+`helm/deploy.sh` bygger imagesarna i Minikubes Docker och kör
+`helm upgrade --install devroom helm/devroom -n devroom --create-namespace`.
+Port-forward-kommandona skrivs ut i NOTES efter install. Tear-down:
+`helm uninstall devroom -n devroom`.
+
+> Migrerar du från en tidigare rå `k8s/deploy.sh`-deploy: kör först
+> `kubectl delete namespace devroom` — Helm tar inte över objekt den inte själv skapat.
 
 ### Komponenter under utveckling lokalt
 
