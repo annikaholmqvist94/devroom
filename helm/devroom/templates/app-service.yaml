@@ -6,6 +6,9 @@ metadata:
   name: {{ $name }}
   labels:
     app: {{ $name }}
+    {{- if $svc.metrics }}
+    devroom.io/metrics: "true"
+    {{- end }}
     {{- include "devroom.labels" $ | nindent 4 }}
 spec:
   selector:
