@@ -14,6 +14,11 @@ helm upgrade --install loki grafana/loki \
   --version 7.0.0 -n monitoring --create-namespace \
   -f helm/loki-values.yaml --wait --timeout 10m
 
+echo "==> Installing Grafana Tempo (chart 1.24.4, single-binary)"
+helm upgrade --install tempo grafana/tempo \
+  --version 1.24.4 -n monitoring \
+  -f helm/tempo-values.yaml --wait --timeout 5m
+
 echo "==> Installing Grafana Alloy (chart 1.10.0, DaemonSet)"
 helm upgrade --install alloy grafana/alloy \
   --version 1.10.0 -n monitoring \
@@ -21,6 +26,9 @@ helm upgrade --install alloy grafana/alloy \
 
 echo "==> Provisioning Loki datasource into Grafana"
 kubectl apply -f helm/grafana-loki-datasource.yaml
+
+echo "==> Provisioning Tempo datasource into Grafana"
+kubectl apply -f helm/grafana-tempo-datasource.yaml
 
 echo "==> Logging stack ready. Query logs in Grafana → Explore → Loki."
 kubectl get pods -n monitoring -l 'app.kubernetes.io/name in (loki, alloy)'
