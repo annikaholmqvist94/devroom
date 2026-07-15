@@ -49,6 +49,8 @@ jobs:
     # Publish container images to GHCR only for merged code (push to main),
     # not on PRs. PRs still run the build + helm jobs for validation.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only publish images after tests (build) and chart validation (helm) pass.
+    needs: [build, helm]
     runs-on: ubuntu-latest
     permissions:
       contents: read
