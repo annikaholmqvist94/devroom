@@ -1,0 +1,7 @@
+# Overrides for deploying the chart with images pulled from GHCR (published by CI).
+# Usage: helm upgrade --install devroom helm/devroom -f helm/devroom/values-ghcr.yaml
+# (Local Minikube uses the default values.yaml: registry "devroom", pullPolicy Never.)
+global:
+  imageRegistry: ghcr.io/annikaholmqvist94
+  imageTag: latest
+  imagePullPolicy: IfNotPresent
