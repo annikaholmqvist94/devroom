@@ -13,7 +13,7 @@ data:
         type: tempo
         uid: tempo
         access: proxy
-        url: http://tempo.monitoring.svc:3100
+        url: http://tempo.monitoring.svc:3200
         jsonData:
           tracesToLogsV2:
             datasourceUid: loki
