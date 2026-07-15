@@ -38,6 +38,13 @@ data:
           "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
           "datasource": { "type": "prometheus", "uid": "prometheus" },
           "targets": [ { "expr": "sum(rate(http_server_requests_seconds_count[5m])) by (job)", "legendFormat": "{{`{{job}}`}}" } ]
+        },
+        {
+          "type": "logs", "title": "Logs (devroom)",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "options": { "showTime": true, "wrapLogMessage": true },
+          "targets": [ { "expr": "{namespace=\"devroom\"}", "datasource": { "type": "loki", "uid": "loki" } } ]
         }
       ]
     }
