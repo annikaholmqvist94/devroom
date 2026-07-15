@@ -21,6 +21,11 @@ spring:
     port: 5672
     username: devroom
     password: devroom
+    template:
+      observation-enabled: true
+    listener:
+      simple:
+        observation-enabled: true
   security:
     oauth2:
       resourceserver:
@@ -50,6 +55,12 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: http://alloy.monitoring.svc:4318/v1/traces
 
 logging:
   structured:

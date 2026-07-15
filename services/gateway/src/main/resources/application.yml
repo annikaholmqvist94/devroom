@@ -69,6 +69,12 @@ management:
         enabled: true
     gateway:
       access: read-only    # GET /actuator/gateway/routes listar aktiva routes
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: http://alloy.monitoring.svc:4318/v1/traces
 
 # ---- Loggning ----
 logging:

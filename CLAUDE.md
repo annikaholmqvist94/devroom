@@ -154,7 +154,16 @@ git log --oneline | head -5
 - **Verifierat (statiskt, Docker var nere):** property finns i alla 5 + YAML giltig; Loki- och Alloy-värdena renderar mot de riktiga charten (`helm template`); datakälla-YAML + dashboard-JSON giltiga; install-logging.sh syntax-OK. ADR-0013 skriven.
 - **Subagent-lärdom:** subagent-driven execution försöktes men subagenter nekas Edit i denna miljö (även med bypassPermissions) — föll tillbaka på inline. Testcontainers-`mvn verify` kunde inte köras (Docker nere); boot/JSON-format verifieras vid live-körning.
 
-**Nästa steg:** Merga `plan-14-loki` till `main` via PR. Sedan Plan 15 (Tempo — distribuerad tracing, återanvänder Alloy).
+**Plan 15 (2026-07-15, branch `plan-15-tempo`):** Distribuerad tracing — Fas B:s final. De 5 tjänsterna instrumenteras med Micrometer Tracing och exporterar OTLP till Alloy, som vidarebefordrar till Tempo; en trace följer ett request genom HTTP → gRPC → RabbitMQ och visas som waterfall i Grafana, med trace→logg-länkning. **Fas B (observability) komplett.**
+
+- **Instrumentering:** `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp` (per service-pom) + `management.tracing.sampling.probability: 1.0` + `management.otlp.tracing.endpoint: http://alloy.monitoring.svc:4318/v1/traces`. RabbitMQ: `spring.rabbitmq.{template,listener.simple}.observation-enabled: true` (4 rabbit-tjänster).
+- **gRPC:** `ObservationGrpcClientInterceptor` (message/bot `GrpcClientConfig` via `ClientInterceptors.intercept`) + `ObservationGrpcServerInterceptor`-bean (ny `user-service/config/GrpcServerConfig`). Klasserna finns i `micrometer-core` (inga nya deps). Compile-verifierat. **Risk:** Spring gRPC 1.0.3-server-interceptor-registrering verifieras live; om den inte propagerar blir message→user separat trace (känt gap, ADR-0014).
+- **Tempo** (grafana/tempo chart 1.24.4, single-binary, OTLP-receivers) som egen release i `monitoring`. **Alloy** utökad: `otelcol.receiver.otlp` (4317/4318) → `otelcol.exporter.otlp` mot `tempo.monitoring.svc:4317`; `extraPorts` exponerar receivern. `install-logging.sh` installerar nu Loki + Alloy + **Tempo**.
+- **Grafana:** Tempo-datakälla (uid `tempo`, ConfigMap i `monitoring`) med `tracesToLogsV2` → Loki (uid `loki`). Traces i Explore → waterfall + hopp till loggar per span.
+- **Verifierat (statiskt, Docker nere):** deps i 5 poms, YAML giltig, alla 5 moduler + gRPC-koden kompilerar (`mvn compile`), Tempo/Alloy-värden renderar mot charten (`helm template`), datakälla-YAML giltig. ADR-0014 skriven.
+- **Exekvering:** subagent-drivet (Task 1–3 med oberoende spec/kod-review) efter att subagent-Edit-behörighet fixats i `.claude/settings.local.json` (`allow: [Edit, Write, Bash]`). Task 4/6 (prosa) inline.
+
+**Nästa steg:** Merga `plan-15-tempo` till `main` via PR. Fas B klar → **Fas C (Plan 16: CI/CD)** — GitHub Actions bygger → pushar images → deployar chartet.
 
 ## Nyckel-dokument (läs vid sessionsstart)
 

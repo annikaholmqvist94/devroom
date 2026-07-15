@@ -26,6 +26,7 @@ All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik �
 | 12 | Traefik ingress (CoreDNS split-horizon + ADR-0011) | 12 | 2026-06-24 |
 | 13 | Metrics: Prometheus + Grafana (ServiceMonitor + egna counters + ADR-0012) | 13 | 2026-06-24 |
 | 14 | Loggar: Loki + Alloy + strukturerad JSON (ADR-0013) | 14 | 2026-06-27 |
+| 15 | Tracing: Tempo + Micrometer (OTLP via Alloy + ADR-0014) | 15 | 2026-07-15 |
 
 ## Arkitektur
 
@@ -180,6 +181,20 @@ bash helm/install-monitoring.sh  # Plan 13 (om inte redan kört)
 bash helm/install-logging.sh     # Loki + Alloy + Grafana-datakälla
 bash helm/deploy.sh              # appen (JSON-loggar + logs-panel)
 # Grafana → Explore → Loki:  {namespace="devroom"} | json | log_level="ERROR"
+```
+
+### Tracing med Tempo
+
+Se [ADR-0014](docs/adr/0014-tempo-tracing.md). Tjänsterna instrumenteras med Micrometer
+Tracing och exporterar OTLP till Grafana Alloy, som vidarebefordrar till Tempo. En trace
+följer ett request genom HTTP → gRPC → RabbitMQ och visas som ett waterfall i Grafana →
+Explore (datakälla Tempo), med hopp till Loki-loggar per span.
+
+```bash
+bash helm/install-monitoring.sh   # Plan 13
+bash helm/install-logging.sh      # Loki + Alloy + Tempo
+bash helm/deploy.sh               # appen (instrumenterad)
+# Grafana → Explore → Tempo → sök en trace → waterfall över alla transporter
 ```
 
 ### Komponenter under utveckling lokalt
