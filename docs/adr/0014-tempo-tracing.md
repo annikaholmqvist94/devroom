@@ -35,10 +35,11 @@ sammanhängande cross-transport-tracen.
 - Tempo som egen release i `monitoring`; Alloy utökad med OTLP-receiver → Tempo.
   `install-logging.sh` installerar nu Loki + Alloy + Tempo.
 - 100 % sampling passar demo; produktions-sampling är out-of-scope.
-- **gRPC-hoppet är den känsligaste biten** (Spring gRPC 1.0.3). Client-interceptorn
-  propagerar utgående kontext; server-interceptorn (ObservationGrpcServerInterceptor)
-  förlitar sig på att Spring gRPC applicerar ServerInterceptor-beans globalt. Om det
-  inte propagerar rätt vid live-test blir message→user en separat trace — känt gap;
-  HTTP + RabbitMQ-delarna av kedjan är robusta.
+- **gRPC-observation auto-konfigureras av Spring Boot 4** (`GrpcServerObservationAutoConfiguration`
+  + motsvarande klient-autoconfig) när tracing-bryggan finns — inga manuella interceptorer
+  behövs. Plan 15:s manuella `GrpcServerConfig`/klient-interceptorer var onödiga och
+  server-beanen krockade dessutom med Boots auto-registrerade bean
+  (`BeanDefinitionOverrideException` → user-service startade inte), fångat av CI på GitHub
+  och rättat i `fix/plan-15-grpc-observation` (koden borttagen; Boot sköter propageringen).
 - Fas B (observability) komplett: metrics (Plan 13) + loggar (Plan 14) + traces
   (Plan 15), alla i Grafana med korslänkning.
