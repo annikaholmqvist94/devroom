@@ -44,3 +44,48 @@ jobs:
 
       - name: Helm template (render check)
         run: helm template devroom helm/devroom > /dev/null
+
+  images:
+    # Publish container images to GHCR only for merged code (push to main),
+    # not on PRs. PRs still run the build + helm jobs for validation.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only publish images after tests (build) and chart validation (helm) pass.
+    needs: [build, helm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - service: auth-service
+            dockerfile: services/auth-service/Dockerfile
+          - service: user-service
+            dockerfile: services/user-service/Dockerfile
+          - service: message-service
+            dockerfile: services/message-service/Dockerfile
+          - service: gateway
+            dockerfile: services/gateway/Dockerfile
+          - service: bot-service
+            dockerfile: services/bot-service/Dockerfile
+          - service: frontend
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/annikaholmqvist94/${{ matrix.service }}:${{ github.sha }}
+            ghcr.io/annikaholmqvist94/${{ matrix.service }}:latest

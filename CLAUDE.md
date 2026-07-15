@@ -163,7 +163,15 @@ git log --oneline | head -5
 - **Verifierat (statiskt, Docker nere):** deps i 5 poms, YAML giltig, alla 5 moduler + gRPC-koden kompilerar (`mvn compile`), Tempo/Alloy-värden renderar mot charten (`helm template`), datakälla-YAML giltig. ADR-0014 skriven.
 - **Exekvering:** subagent-drivet (Task 1–3 med oberoende spec/kod-review) efter att subagent-Edit-behörighet fixats i `.claude/settings.local.json` (`allow: [Edit, Write, Bash]`). Task 4/6 (prosa) inline.
 
-**Nästa steg:** Merga `plan-15-tempo` till `main` via PR. Fas B klar → **Fas C (Plan 16: CI/CD)** — GitHub Actions bygger → pushar images → deployar chartet.
+**Plan 16 (2026-07-15, branch `plan-16-cicd`):** CI/CD — Fas C. Ett `images`-matrisjobb i `ci.yml` bygger de 6 Devroom-imagesarna och pushar till GHCR vid push till `main`. Chartet kan dra från GHCR via `values-ghcr.yaml`.
+
+- **`images`-jobb:** matris över de 6 tjänsterna (auth/user/message/gateway/bot/frontend), `docker/login-action` (ghcr.io, `github.actor` + `GITHUB_TOKEN`, `packages: write`) → `docker/build-push-action` (context repo-rot, tjänstens Dockerfile) → taggar `ghcr.io/annikaholmqvist94/<tjänst>:<sha>` + `:latest`. Gate:at: `if: push && ref==main` + `needs: [build, helm]` (publicerar bara mergad kod som passerat test/lint). PR:er kör bara build+helm.
+- **`helm/devroom/values-ghcr.yaml`:** `global.imageRegistry: ghcr.io/annikaholmqvist94` + `imageTag: latest` + `imagePullPolicy: IfNotPresent` → `helm ... -f values-ghcr.yaml` drar från GHCR. Lokal (`devroom`/`Never`) vs GHCR = två values-filer, inga mall-ändringar.
+- **dev-mentor-undantag:** externt repo, publiceras inte av CD; en GHCR-deploy måste förse dess image separat.
+- **Verifierat:** ci.yml YAML giltig (jobb `build`/`helm`/`images`, matris 6, needs-gate), `helm template -f values-ghcr.yaml` renderar `ghcr.io/...`-images, `helm lint` grön. ADR-0015. **Review fångade** en saknad `needs`-gate (images kunde annars publiceras vid failande build) — fixad.
+- **Exekvering:** subagent-drivet (Task 1+2 med oberoende review), ADR/docs inline. **Verifierbart LIVE på GitHub** — images dyker upp i repots Packages efter merge till main.
+
+**Nästa steg:** Merga `plan-16-cicd` (triggar `images`-jobbet) → verifiera GHCR-paketen. Sedan **Fas D (Plan 17: AWS/EKS)** — Terraform för IAM/VPC/ECR/EKS, lyft samma chart till molnet.
 
 ## Nyckel-dokument (läs vid sessionsstart)
 

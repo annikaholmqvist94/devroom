@@ -27,6 +27,7 @@ All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik �
 | 13 | Metrics: Prometheus + Grafana (ServiceMonitor + egna counters + ADR-0012) | 13 | 2026-06-24 |
 | 14 | Loggar: Loki + Alloy + strukturerad JSON (ADR-0013) | 14 | 2026-06-27 |
 | 15 | Tracing: Tempo + Micrometer (OTLP via Alloy + ADR-0014) | 15 | 2026-07-15 |
+| 16 | CI/CD: build + push images till GHCR (ADR-0015) | 16 | 2026-07-15 |
 
 ## Arkitektur
 
@@ -195,6 +196,19 @@ bash helm/install-monitoring.sh   # Plan 13
 bash helm/install-logging.sh      # Loki + Alloy + Tempo
 bash helm/deploy.sh               # appen (instrumenterad)
 # Grafana → Explore → Tempo → sök en trace → waterfall över alla transporter
+```
+
+### CI/CD (GitHub Actions → GHCR)
+
+Se [ADR-0015](docs/adr/0015-cicd-ghcr.md). `.github/workflows/ci.yml` kör `build`
+(`mvn verify`) + `helm` (lint/template) på varje push/PR, och ett `images`-jobb som
+bygger de 6 tjänsterna och pushar till GHCR (`ghcr.io/annikaholmqvist94/<tjänst>`,
+SHA + `latest`) vid push till `main` — först efter gröna build/helm-jobb.
+
+```bash
+# Deploya chartet med images från GHCR (i stället för lokala Minikube-images):
+helm upgrade --install devroom helm/devroom -n devroom --create-namespace \
+  -f helm/devroom/values-ghcr.yaml
 ```
 
 ### Komponenter under utveckling lokalt
