@@ -144,7 +144,17 @@ git log --oneline | head -5
 - **Installordning:** `setup-ingress.sh` (Traefik+CoreDNS) → `install-monitoring.sh` (CRDs + Grafana-ingress) → `deploy.sh` (ServiceMonitor kräver CRD:n). Minikube behöver 8 GB.
 - **Verifierat:** unit-tester gröna (message-service + bot-service inkl. de nya counter-testerna), `helm lint`/`template` gröna, ServiceMonitor + dashboard-JSON renderar korrekt. ADR-0012 skriven.
 
-**Nästa steg:** Merga `plan-13-prometheus-grafana` till `main` via PR. Sedan Plan 14 (Loki — loggaggregering in i samma Grafana).
+**Plan 14 (2026-06-27, branch `plan-14-loki`):** Loggaggregering. De 5 Spring-tjänsterna loggar strukturerad ECS-JSON, Grafana Alloy samlar containerloggarna och pushar till Loki, och loggarna frågas/korreleras i samma Grafana som metrics. Andra planen i Fas B.
+
+- **Strukturerad loggning:** `logging.structured.format.console=ecs` (Spring Boot 4:s inbyggda) i de 5 tjänsternas `application.yml` — varje stdout-rad blir ett ECS-JSON-objekt. Ingen ny dependency. Trade-off: stdout blir JSON (mindre läsbart lokalt).
+- **Loki** (grafana/loki chart 7.0.0, single-binary, filsystem) + **Grafana Alloy** (grafana/alloy chart 1.10.0, DaemonSet) som egna releaser i `monitoring` via `helm/install-logging.sh`. Alloy-config: `discovery.kubernetes` + relabel (namespace/pod/container/app) + `local.file_match` + `loki.source.file` → `loki.write` mot `http://loki.monitoring.svc:3100`.
+- **Grafana-datakälla:** `helm/grafana-loki-datasource.yaml` (ConfigMap, label `grafana_datasource: "1"`, uid `loki`) appliceras i `monitoring`-ns av install-logging.sh — datasource-sidecaren letar bara där (Plan 13 satte `searchNamespace=ALL` enbart för dashboards).
+- **Logs-panel** tillagd i "Devroom Overview"-dashboarden (`{namespace="devroom"}`, uid `loki`) → metrics + loggar sida vid sida.
+- **Installordning:** setup-ingress → install-monitoring (Plan 13) → install-logging → deploy.
+- **Verifierat (statiskt, Docker var nere):** property finns i alla 5 + YAML giltig; Loki- och Alloy-värdena renderar mot de riktiga charten (`helm template`); datakälla-YAML + dashboard-JSON giltiga; install-logging.sh syntax-OK. ADR-0013 skriven.
+- **Subagent-lärdom:** subagent-driven execution försöktes men subagenter nekas Edit i denna miljö (även med bypassPermissions) — föll tillbaka på inline. Testcontainers-`mvn verify` kunde inte köras (Docker nere); boot/JSON-format verifieras vid live-körning.
+
+**Nästa steg:** Merga `plan-14-loki` till `main` via PR. Sedan Plan 15 (Tempo — distribuerad tracing, återanvänder Alloy).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
