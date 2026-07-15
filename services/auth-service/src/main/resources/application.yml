@@ -85,3 +85,8 @@ management:
     health:
       probes:
         enabled: true
+
+logging:
+  structured:
+    format:
+      console: ecs
