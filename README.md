@@ -25,6 +25,7 @@ All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik �
 | 11 | Helm-chart (generisk service-mall + infra-toggle + ADR-0010) | 11 | 2026-06-24 |
 | 12 | Traefik ingress (CoreDNS split-horizon + ADR-0011) | 12 | 2026-06-24 |
 | 13 | Metrics: Prometheus + Grafana (ServiceMonitor + egna counters + ADR-0012) | 13 | 2026-06-24 |
+| 14 | Loggar: Loki + Alloy + strukturerad JSON (ADR-0013) | 14 | 2026-06-27 |
 
 ## Arkitektur
 
@@ -165,6 +166,20 @@ bash helm/deploy.sh             # appen (ServiceMonitor + dashboard)
 echo "127.0.0.1 grafana.devroom.local" | sudo tee -a /etc/hosts
 minikube tunnel                 # eget fönster
 # Grafana: http://grafana.devroom.local  (admin/admin)
+```
+
+### Loggar med Loki
+
+Se [ADR-0013](docs/adr/0013-loki-alloy-logging.md). Tjänsterna loggar strukturerad
+ECS-JSON; Grafana Alloy (DaemonSet) samlar containerloggarna och pushar till Loki.
+Loggarna frågas i Grafana → Explore (datakälla Loki) och syns i en panel i
+"Devroom Overview".
+
+```bash
+bash helm/install-monitoring.sh  # Plan 13 (om inte redan kört)
+bash helm/install-logging.sh     # Loki + Alloy + Grafana-datakälla
+bash helm/deploy.sh              # appen (JSON-loggar + logs-panel)
+# Grafana → Explore → Loki:  {namespace="devroom"} | json | log_level="ERROR"
 ```
 
 ### Komponenter under utveckling lokalt
