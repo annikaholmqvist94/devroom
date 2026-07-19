@@ -171,7 +171,17 @@ git log --oneline | head -5
 - **Verifierat:** ci.yml YAML giltig (jobb `build`/`helm`/`images`, matris 6, needs-gate), `helm template -f values-ghcr.yaml` renderar `ghcr.io/...`-images, `helm lint` grön. ADR-0015. **Review fångade** en saknad `needs`-gate (images kunde annars publiceras vid failande build) — fixad.
 - **Exekvering:** subagent-drivet (Task 1+2 med oberoende review), ADR/docs inline. **Verifierbart LIVE på GitHub** — images dyker upp i repots Packages efter merge till main.
 
-**Nästa steg:** Merga `plan-16-cicd` (triggar `images`-jobbet) → verifiera GHCR-paketen. Sedan **Fas D (Plan 17: AWS/EKS)** — Terraform för IAM/VPC/ECR/EKS, lyft samma chart till molnet.
+**Plan 17 (2026-07-19, branch `plan-17-aws-eks-terraform`):** AWS/EKS-fundament via Terraform — Fas D, plan-only. `terraform/`-rotmodulen beskriver VPC + EKS + ECR + IAM för Devroom, men körs **aldrig** med `apply`.
+
+- **`terraform/`-modulen:** VPC (`terraform-aws-modules/vpc` ~>5) + EKS (`terraform-aws-modules/eks` ~>20) + ECR-repos (ett per tjänst) + IAM via `main.tf`/`vpc.tf`/`eks.tf`/`ecr.tf`/`variables.tf`/`outputs.tf`/`versions.tf`. Lokalt state (ingen S3-backend än — se framtidsarbete).
+- **EKS access entries, inte aws-auth:** modern `aws_eks_access_entry`/access-policy-associations istället för den klassiska `aws-auth` ConfigMap. Gör att `terraform plan` blir rent (`aws-auth` kräver ofta ett kube-provider-hack som inte går att planera utan en riktig cluster-endpoint).
+- **PLAN-ONLY kostnadsgaranti:** enda kommandon som körs, någonsin, i denna plan är `fmt`, `init -backend=false`, `validate` och `plan` — aldrig `apply`. **$0 i AWS-kostnad.** `validate` kräver inga credentials; `plan` görs mot ett riktigt AWS-konto (read-only, skapar inget) och är beviset på att modulen faktiskt "använder AWS" och inte bara är syntaktiskt korrekt HCL.
+- **Ny `terraform` CI-job:** i `ci.yml`, kör `fmt -check -recursive` + `init -backend=false` + `validate` — inga AWS-credentials i CI, så jobbet är säkert att köra på varje push/PR.
+- **`values-eks.yaml`:** illustrativ Helm-values-fil som pekar chartet mot ECR (`<ACCOUNT_ID>.dkr.ecr.eu-north-1.amazonaws.com/devroom`). Samma mönster som `values-ghcr.yaml` (Plan 16) — `global.imageRegistry`/`imageTag`/`imagePullPolicy`. `infra.enabled` förblir `true` (in-cluster Postgres/RabbitMQ oförändrat; RDS/Amazon MQ är Plan 18).
+- **ADR-0016 skriven:** AWS/EKS via Terraform, plan-only-avgränsningen och varför (kostnadskontroll under portfolio-fasen).
+- **Framtidsarbete (uttryckligen skjutet):** RDS + ALB/Route53 (Plan 18), S3-backend för Terraform-state (lokalt state räcker plan-only men inte för ett team), GitOps-utrullning (Terraform Cloud/Atlantis eller motsvarande) när/om planen någonsin ska köras med `apply`.
+
+**Nästa steg:** `terraform plan` mot kontot + merge. Sedan **Plan 18** — RDS + ALB/Route53.
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
