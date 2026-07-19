@@ -29,7 +29,7 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md) for the f
 | 14 | Loggar: Loki + Alloy + strukturerad JSON (ADR-0013) | 14 | 2026-06-27 |
 | 15 | Tracing: Tempo + Micrometer (OTLP via Alloy + ADR-0014) | 15 | 2026-07-15 |
 | 16 | CI/CD: build + push images till GHCR (ADR-0015) | 16 | 2026-07-15 |
-| 17 | AWS/EKS via Terraform (plan-only, $0 — ADR-0016) | 17 | 2026-07-19 |
+| 17 | AWS/EKS via Terraform (plan-only, utan kostnad — ADR-0016) | 17 | 2026-07-19 |
 
 ## Arkitektur
 
@@ -217,19 +217,19 @@ helm upgrade --install devroom helm/devroom -n devroom --create-namespace \
 
 Se [ADR-0016](docs/adr/0016-aws-eks-terraform.md). `terraform/` beskriver Devrooms
 moln-fundament (VPC + EKS + ECR + IAM). **Körs aldrig med `apply`** — endast validate/plan,
-så det kostar $0. Samma Helm-chart kör tre miljöer (Minikube / GHCR / EKS) via values-filer.
+så det kostar ingenting. Samma Helm-chart kör tre miljöer (Minikube / GHCR / EKS) via values-filer.
 
 ```bash
 brew install terraform
 terraform -chdir=terraform init -backend=false
-terraform -chdir=terraform validate          # inga credentials, $0
-terraform -chdir=terraform init && terraform -chdir=terraform plan   # mot kontot, $0, inget skapas
+terraform -chdir=terraform validate          # inga credentials, ingen kostnad
+terraform -chdir=terraform init && terraform -chdir=terraform plan   # mot kontot, ingen kostnad, inget skapas
 # Deploya (hypotetiskt, ej i denna plan):  helm ... -f helm/devroom/values-eks.yaml
 ```
 
 Verifierat mot ett riktigt AWS-konto: `terraform plan` → `Plan: 65 to add, 0 to change,
-0 to destroy` (VPC + EKS + node group + 6 ECR-repos + IAM/KMS). Read-only, `$0`, `apply`
-körs aldrig.
+0 to destroy` (VPC + EKS + node group + 6 ECR-repos + IAM/KMS). Read-only, utan kostnad,
+`apply` körs aldrig.
 
 ### Komponenter under utveckling lokalt
 
@@ -287,7 +287,7 @@ Se [docs/adr/](docs/adr/) för fullständig lista.
 - **[ADR-0013](docs/adr/0013-loki-alloy-logging.md)** — Loki + Alloy + strukturerad ECS-JSON för loggar
 - **[ADR-0014](docs/adr/0014-tempo-tracing.md)** — Tempo + Micrometer Tracing (OTLP via Alloy)
 - **[ADR-0015](docs/adr/0015-cicd-ghcr.md)** — CI/CD som bygger + pushar images till GHCR
-- **[ADR-0016](docs/adr/0016-aws-eks-terraform.md)** — AWS EKS-fundament via Terraform (plan-only, $0)
+- **[ADR-0016](docs/adr/0016-aws-eks-terraform.md)** — AWS EKS-fundament via Terraform (plan-only, utan kostnad)
 
 ## Designdokument
 
