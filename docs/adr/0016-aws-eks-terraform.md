@@ -1,4 +1,4 @@
-# ADR-0016: AWS EKS-fundament via Terraform (plan-only, $0)
+# ADR-0016: AWS EKS-fundament via Terraform (plan-only, utan kostnad)
 
 **Status:** Accepted
 **Date:** 2026-07-19
@@ -13,7 +13,7 @@ Terraform **utan kostnad** och utan live-kluster. EKS/NAT/node group är billbar
 Skriva riktig Terraform (`terraform/`) för VPC + EKS + ECR + IAM via
 `terraform-aws-modules/vpc` + `/eks` (v20, **EKS access entries** i stället för
 aws-auth-ConfigMap → ingen kubernetes-provider → ren `plan`). Bevisa äktheten med
-`terraform validate` (inga credentials) + `terraform plan` (läs-anrop, $0, inget skapas).
+`terraform validate` (inga credentials) + `terraform plan` (läs-anrop, ingen kostnad, inget skapas).
 **`terraform apply` körs aldrig.** Ett CI-jobb kör fmt + validate gratis. En
 `values-eks.yaml` visar chart-portabiliteten mot ECR (deployas ej).
 

@@ -1,4 +1,4 @@
-# Plan 17 — AWS/EKS via Terraform (plan-only, $0): Designspecifikation
+# Plan 17 — AWS/EKS via Terraform (plan-only, utan kostnad): Designspecifikation
 
 **Datum:** 2026-07-19
 **Författare:** Annika Holmqvist
@@ -16,18 +16,18 @@ har ett AWS-konto. Terraform är inte installerat lokalt (AWS CLI 2.35 finns).
 
 **Mål:** Skriva *riktig*, produktions-formad Terraform för Devrooms moln-fundament — **VPC,
 EKS (kluster + managed node group), ECR, IAM** — och bevisa att den är äkta via `terraform
-validate` + `terraform plan` mot AWS-kontot, **utan att någonsin köra `apply`** (alltså $0,
-inget skapas). Plus en `values-eks.yaml` som visar chart-portabiliteten.
+validate` + `terraform plan` mot AWS-kontot, **utan att någonsin köra `apply`** (alltså utan
+kostnad, inget skapas). Plus en `values-eks.yaml` som visar chart-portabiliteten.
 
 **Kostnadsgaranti:** `apply` körs ALDRIG. Endast `fmt`/`init`/`validate` (lokalt, inga
-AWS-anrop) + `plan` (läs-anrop, $0). EKS/NAT/node group skulle kosta *om* de applicerades —
+AWS-anrop) + `plan` (läs-anrop, ingen kostnad). EKS/NAT/node group skulle kosta *om* de applicerades —
 det gör vi inte.
 
 **Icke-mål (denna plan):** `apply`/live-kluster, Kubernetes/Helm-resurser i Terraform.
 
 **Uttalat framtida arbete (svar på roadmap-frågor):**
 - **RDS + ALB/Route53** → **Plan 18** (Fas D, nästa plan).
-- **S3 + DynamoDB remote state-backend** → framtida uppgradering (fjärr-/team-state; ~$0 men
+- **S3 + DynamoDB remote state-backend** → framtida uppgradering (fjärr-/team-state; i praktiken gratis men
   kräver bootstrap). Lokal state räcker för plan-only nu.
 - **GitOps-deploy till EKS (ArgoCD)** → framtida plan, meningsfull först när ett live-kluster
   körs (kostar pengar). ArgoCD-idén som sköts upp i Plan 16.
@@ -88,7 +88,7 @@ push/PR. Signal: "IaC formateras + valideras i pipelinen."
 
 | Val | Beslut | Motivering |
 |---|---|---|
-| Verifieringsdjup | `validate` + `plan` mot kontot; **aldrig `apply`** | Genuint "använder AWS", $0 |
+| Verifieringsdjup | `validate` + `plan` mot kontot; **aldrig `apply`** | Genuint "använder AWS", utan kostnad |
 | Omfattning | VPC + EKS + node group + ECR + IAM | Moln-fundament; RDS/ALB = Plan 18 |
 | Moduler | `terraform-aws-modules/vpc` + `/eks` | Branschstandard, välkänt |
 | Region | `eu-north-1` (Stockholm) | Nära; variabel-styrd |
@@ -123,7 +123,7 @@ EKS ej i gratis-tier), faktisk `apply` (kostar EKS/NAT/node — avvisat mot krav
 
 - **Statiskt/CI (gratis, inga credentials):** `terraform fmt -check -recursive`,
   `terraform init -backend=false`, `terraform validate`; CI-jobbet grönt.
-- **Mot AWS-kontot ($0, inget skapas):** `terraform init` + `terraform plan` → utskrift
+- **Mot AWS-kontot (utan kostnad, inget skapas):** `terraform init` + `terraform plan` → utskrift
   "Plan: N to add, 0 to change, 0 to destroy" som listar VPC/EKS/ECR-resurser. Kräver
   konfigurerade AWS-credentials. **`apply` körs aldrig.**
 - Om Terraform inte är installerat: `brew install terraform` (förutsättning, som `helm` i
