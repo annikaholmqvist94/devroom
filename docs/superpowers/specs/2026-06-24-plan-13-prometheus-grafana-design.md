@@ -96,7 +96,7 @@ Dokumenteras i deploy-stegen.
 
 | Val | Beslut | Motivering |
 |---|---|---|
-| Install-approach | kube-prometheus-stack (Operator + ServiceMonitors) | Industristandard, recruiter-igenkänning |
+| Install-approach | kube-prometheus-stack (Operator + ServiceMonitors) | Industristandard, välkänt |
 | Grafana-åtkomst | Via Traefik ingress (`grafana.devroom.local`) | Återanvänder Plan 12, sammanhållen story |
 | Metrics-scope | Automatiska + egna domän-counters | "Egna affärsmått"-portföljpoäng |
 | Placering | Egen release i `monitoring`-namespace | Samma mönster som Traefik |

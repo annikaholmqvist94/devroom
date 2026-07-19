@@ -23,7 +23,7 @@ Grafana nås via Traefik-ingress (`grafana.devroom.local`).
 En enkel Prometheus-Deployment + scrape-config med pod-annotationer. Lägre RAM,
 färre rörliga delar, mer synlig scrape-config. Avvisat: ingen Operator/
 ServiceMonitor — kube-prometheus-stack är branschstandarden och termerna
-('Prometheus Operator', 'ServiceMonitor') är just det rekryterare frågar om.
+('Prometheus Operator', 'ServiceMonitor') är de man möter i produktionsmiljöer.
 
 ### 2. Grafana Cloud / hosted
 Avvisat — projektet ska kunna köras helt lokalt.
