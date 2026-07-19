@@ -89,3 +89,22 @@ jobs:
           tags: |
             ghcr.io/annikaholmqvist94/${{ matrix.service }}:${{ github.sha }}
             ghcr.io/annikaholmqvist94/${{ matrix.service }}:latest
+
+  terraform:
+    # Cost-free IaC gate: fmt + validate need NO AWS credentials and create nothing.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.5"
+
+      - name: Terraform fmt
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      - name: Terraform init
+        run: terraform -chdir=terraform init -backend=false
+
+      - name: Terraform validate
+        run: terraform -chdir=terraform validate
