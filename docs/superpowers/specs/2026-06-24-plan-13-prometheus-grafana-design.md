@@ -98,7 +98,7 @@ Dokumenteras i deploy-stegen.
 |---|---|---|
 | Install-approach | kube-prometheus-stack (Operator + ServiceMonitors) | Industristandard, välkänt |
 | Grafana-åtkomst | Via Traefik ingress (`grafana.devroom.local`) | Återanvänder Plan 12, sammanhållen story |
-| Metrics-scope | Automatiska + egna domän-counters | "Egna affärsmått"-portföljpoäng |
+| Metrics-scope | Automatiska + egna domän-counters | Visar egna affärsmått, inte bara infra-metrics |
 | Placering | Egen release i `monitoring`-namespace | Samma mönster som Traefik |
 | Scraping | En delad ServiceMonitor som selekterar de 5 Spring-tjänsterna | DRY; exkluderar frontend/dev-mentor |
 
