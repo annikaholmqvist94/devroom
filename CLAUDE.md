@@ -178,7 +178,7 @@ git log --oneline | head -5
 - **PLAN-ONLY kostnadsgaranti:** enda kommandon som körs, någonsin, i denna plan är `fmt`, `init -backend=false`, `validate` och `plan` — aldrig `apply`. **$0 i AWS-kostnad.** `validate` kräver inga credentials; `plan` görs mot ett riktigt AWS-konto (read-only, skapar inget) och är beviset på att modulen faktiskt "använder AWS" och inte bara är syntaktiskt korrekt HCL.
 - **Ny `terraform` CI-job:** i `ci.yml`, kör `fmt -check -recursive` + `init -backend=false` + `validate` — inga AWS-credentials i CI, så jobbet är säkert att köra på varje push/PR.
 - **`values-eks.yaml`:** illustrativ Helm-values-fil som pekar chartet mot ECR (`<ACCOUNT_ID>.dkr.ecr.eu-north-1.amazonaws.com/devroom`). Samma mönster som `values-ghcr.yaml` (Plan 16) — `global.imageRegistry`/`imageTag`/`imagePullPolicy`. `infra.enabled` förblir `true` (in-cluster Postgres/RabbitMQ oförändrat; RDS/Amazon MQ är Plan 18).
-- **ADR-0016 skriven:** AWS/EKS via Terraform, plan-only-avgränsningen och varför (kostnadskontroll under portfolio-fasen).
+- **ADR-0016 skriven:** AWS/EKS via Terraform, plan-only-avgränsningen och varför (kostnadskontroll, $0).
 - **Framtidsarbete (uttryckligen skjutet):** RDS + ALB/Route53 (Plan 18), S3-backend för Terraform-state (lokalt state räcker plan-only men inte för ett team), GitOps-utrullning (Terraform Cloud/Atlantis eller motsvarande) när/om planen någonsin ska köras med `apply`.
 
 **Nästa steg:** `terraform plan` mot kontot + merge. Sedan **Plan 18** — RDS + ALB/Route53.
