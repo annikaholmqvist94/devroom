@@ -28,6 +28,7 @@ All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik �
 | 14 | Loggar: Loki + Alloy + strukturerad JSON (ADR-0013) | 14 | 2026-06-27 |
 | 15 | Tracing: Tempo + Micrometer (OTLP via Alloy + ADR-0014) | 15 | 2026-07-15 |
 | 16 | CI/CD: build + push images till GHCR (ADR-0015) | 16 | 2026-07-15 |
+| 17 | AWS/EKS via Terraform (plan-only, $0 — ADR-0016) | 17 | 2026-07-19 |
 
 ## Arkitektur
 
@@ -209,6 +210,20 @@ SHA + `latest`) vid push till `main` — först efter gröna build/helm-jobb.
 # Deploya chartet med images från GHCR (i stället för lokala Minikube-images):
 helm upgrade --install devroom helm/devroom -n devroom --create-namespace \
   -f helm/devroom/values-ghcr.yaml
+```
+
+### AWS-infrastruktur (Terraform, plan-only)
+
+Se [ADR-0016](docs/adr/0016-aws-eks-terraform.md). `terraform/` beskriver Devrooms
+moln-fundament (VPC + EKS + ECR + IAM). **Körs aldrig med `apply`** — endast validate/plan,
+så det kostar $0. Samma Helm-chart kör tre miljöer (Minikube / GHCR / EKS) via values-filer.
+
+```bash
+brew install terraform
+terraform -chdir=terraform init -backend=false
+terraform -chdir=terraform validate          # inga credentials, $0
+terraform -chdir=terraform init && terraform -chdir=terraform plan   # mot kontot, $0, inget skapas
+# Deploya (hypotetiskt, ej i denna plan):  helm ... -f helm/devroom/values-eks.yaml
 ```
 
 ### Komponenter under utveckling lokalt
