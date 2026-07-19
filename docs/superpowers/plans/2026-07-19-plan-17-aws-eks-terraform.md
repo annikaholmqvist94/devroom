@@ -446,8 +446,8 @@ git commit -m "ci(plan-17): terraform fmt + validate job (no credentials, cost-f
 
 ## Context
 
-Fas D lyfter Devroom till AWS. Kravet: visa Terraform- + AWS-kompetens för rekryterare
-**utan kostnad** och utan live-kluster. EKS/NAT/node group är billbara *om de skapas*.
+Fas D lyfter Devroom till AWS. Kravet: beskriva Devrooms moln-fundament med riktig
+Terraform **utan kostnad** och utan live-kluster. EKS/NAT/node group är billbara *om de skapas*.
 
 ## Decision
 

@@ -10,8 +10,8 @@
 ## 1. Kontext och mål
 
 Devroom kör lokalt (Minikube, Plan 11–15) och publicerar images till GHCR (Plan 16). Fas D
-lyfter samma Helm-chart till AWS. **Kravet är strikt:** visa Terraform- + AWS-kompetens för
-rekryterare **utan att dra på sig någon kostnad** och utan att köra ett live-kluster. Annika
+lyfter samma Helm-chart till AWS. **Kravet är strikt:** beskriva Devrooms moln-fundament med
+riktig Terraform **utan att dra på sig någon kostnad** och utan att köra ett live-kluster. Annika
 har ett AWS-konto. Terraform är inte installerat lokalt (AWS CLI 2.35 finns).
 
 **Mål:** Skriva *riktig*, produktions-formad Terraform för Devrooms moln-fundament — **VPC,
@@ -90,7 +90,7 @@ push/PR. Signal: "IaC formateras + valideras i pipelinen."
 |---|---|---|
 | Verifieringsdjup | `validate` + `plan` mot kontot; **aldrig `apply`** | Genuint "använder AWS", $0 |
 | Omfattning | VPC + EKS + node group + ECR + IAM | Moln-fundament; RDS/ALB = Plan 18 |
-| Moduler | `terraform-aws-modules/vpc` + `/eks` | Branschstandard, recruiter-igenkänning |
+| Moduler | `terraform-aws-modules/vpc` + `/eks` | Branschstandard, välkänt |
 | Region | `eu-north-1` (Stockholm) | Nära; variabel-styrd |
 | State | Lokal (ingen S3) | Noll bootstrap-kostnad; plan-only behöver ej remote state |
 | Behörighet | EKS access entries (ej aws-auth) | Ren `plan` utan kubernetes-provider |
