@@ -8,7 +8,8 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md) for the f
 
 ## Status
 
-All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik → observability → CI/CD → AWS).
+17 planer klara: kärnsystemet (Plan 1–10) + hela DevOps-utbyggnaden Fas A–D
+(Helm → Traefik → observability → CI/CD → AWS/Terraform).
 
 | # | Komponent | Plan | Klar |
 |---|---|---|---|
@@ -28,7 +29,7 @@ All ten plans complete; DevOps-utbyggnad pågår (Fas A–D: Helm → Traefik �
 | 14 | Loggar: Loki + Alloy + strukturerad JSON (ADR-0013) | 14 | 2026-06-27 |
 | 15 | Tracing: Tempo + Micrometer (OTLP via Alloy + ADR-0014) | 15 | 2026-07-15 |
 | 16 | CI/CD: build + push images till GHCR (ADR-0015) | 16 | 2026-07-15 |
-| 17 | AWS/EKS via Terraform (plan-only, $0 — ADR-0016) | 17 | 2026-07-19 |
+| 17 | AWS/EKS via Terraform (plan-only, utan kostnad — ADR-0016) | 17 | 2026-07-19 |
 
 ## Arkitektur
 
@@ -216,15 +217,19 @@ helm upgrade --install devroom helm/devroom -n devroom --create-namespace \
 
 Se [ADR-0016](docs/adr/0016-aws-eks-terraform.md). `terraform/` beskriver Devrooms
 moln-fundament (VPC + EKS + ECR + IAM). **Körs aldrig med `apply`** — endast validate/plan,
-så det kostar $0. Samma Helm-chart kör tre miljöer (Minikube / GHCR / EKS) via values-filer.
+så det kostar ingenting. Samma Helm-chart kör tre miljöer (Minikube / GHCR / EKS) via values-filer.
 
 ```bash
 brew install terraform
 terraform -chdir=terraform init -backend=false
-terraform -chdir=terraform validate          # inga credentials, $0
-terraform -chdir=terraform init && terraform -chdir=terraform plan   # mot kontot, $0, inget skapas
+terraform -chdir=terraform validate          # inga credentials, ingen kostnad
+terraform -chdir=terraform init && terraform -chdir=terraform plan   # mot kontot, ingen kostnad, inget skapas
 # Deploya (hypotetiskt, ej i denna plan):  helm ... -f helm/devroom/values-eks.yaml
 ```
+
+Verifierat mot ett riktigt AWS-konto: `terraform plan` → `Plan: 65 to add, 0 to change,
+0 to destroy` (VPC + EKS + node group + 6 ECR-repos + IAM/KMS). Read-only, utan kostnad,
+`apply` körs aldrig.
 
 ### Komponenter under utveckling lokalt
 
@@ -276,14 +281,22 @@ Se [docs/adr/](docs/adr/) för fullständig lista.
 - **[ADR-0007](docs/adr/0007-gateway-webmvc-variant.md)** — Spring Cloud Gateway WebMVC-variant
 - **[ADR-0008](docs/adr/0008-bot-service-restclient-oauth2.md)** — Bot Service RestClient + interceptor över WebClient + filter
 - **[ADR-0009](docs/adr/0009-minikube-port-forward.md)** — Minikube + port-forward över ingress controller
+- **[ADR-0010](docs/adr/0010-helm-vs-kustomize.md)** — Helm över Kustomize/envsubst för paketering
+- **[ADR-0011](docs/adr/0011-traefik-ingress.md)** — Traefik + standard Ingress + CoreDNS split-horizon
+- **[ADR-0012](docs/adr/0012-kube-prometheus-stack.md)** — kube-prometheus-stack + ServiceMonitor för metrics
+- **[ADR-0013](docs/adr/0013-loki-alloy-logging.md)** — Loki + Alloy + strukturerad ECS-JSON för loggar
+- **[ADR-0014](docs/adr/0014-tempo-tracing.md)** — Tempo + Micrometer Tracing (OTLP via Alloy)
+- **[ADR-0015](docs/adr/0015-cicd-ghcr.md)** — CI/CD som bygger + pushar images till GHCR
+- **[ADR-0016](docs/adr/0016-aws-eks-terraform.md)** — AWS EKS-fundament via Terraform (plan-only, utan kostnad)
 
 ## Designdokument
 
 - [Design spec](docs/superpowers/specs/2026-05-10-devroom-design.md) — 15 sektioner från arkitektur till deployment
-- [Planer](docs/superpowers/plans/) — 10 implementations-planer (en per fas)
+- [Planer](docs/superpowers/plans/) — 17 implementations-planer (en per steg)
 
 ## Out of scope
 
 DM, refresh-tokens i frontend, multi-team, avatar-upload, WebSockets, mTLS,
-HA-Postgres, RabbitMQ-clustering, ingress controller, cloud-deployment.
-Allt dokumenterat i designspec sektion 15.
+HA-Postgres, RabbitMQ-clustering, live cloud-deployment (`terraform apply` —
+AWS-fundamentet finns som plan-only Terraform), managed RDS/Amazon MQ (Plan 18).
+Kärnsystemets ursprungliga avgränsningar finns i designspec sektion 15.

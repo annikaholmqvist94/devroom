@@ -3,7 +3,7 @@
 Real Terraform for Devroom's AWS cloud foundation: **VPC + EKS (cluster + managed node
 group) + ECR + IAM** (via `terraform-aws-modules`).
 
-## ⚠️ PLAN-ONLY — never `apply` ($0)
+## ⚠️ PLAN-ONLY — never `apply` (no cost)
 
 This code exists to demonstrate Terraform + AWS skills **without incurring cost**. Only run:
 
@@ -12,9 +12,9 @@ brew install terraform            # once
 
 terraform -chdir=terraform fmt -check -recursive
 terraform -chdir=terraform init -backend=false
-terraform -chdir=terraform validate          # no AWS credentials, $0
+terraform -chdir=terraform validate          # no AWS credentials, no cost
 
-# Against your AWS account (read-only, $0 — nothing is created):
+# Against your AWS account (read-only, no cost — nothing is created):
 terraform -chdir=terraform init
 terraform -chdir=terraform plan               # shows "Plan: N to add, 0 to change, 0 to destroy"
 ```
