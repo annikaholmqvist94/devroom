@@ -33,7 +33,9 @@ resource "aws_security_group" "rds" {
   tags = { Project = "devroom" }
 }
 
-# Slow-query logging feeds the Loki/Grafana stack from Phase B.
+# Log statements slower than 1s to the instance's own PostgreSQL log, readable
+# via the RDS console or `aws rds download-db-log-file-portion`. These logs do
+# NOT reach the Loki/Grafana stack — nothing exports them to CloudWatch.
 resource "aws_db_parameter_group" "devroom" {
   name        = "${var.cluster_name}-postgres16"
   family      = "postgres16"
