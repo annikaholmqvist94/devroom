@@ -1,0 +1,11 @@
+# Development profile — cheapest configuration that still runs.
+# Copy to terraform.tfvars (gitignored) before running plan.
+region             = "eu-north-1"
+cluster_name       = "devroom"
+node_instance_type = "t3.small"
+node_desired_size  = 2
+
+db_instance_class          = "db.t4g.micro"
+db_multi_az                = false
+db_allocated_storage       = 20
+db_backup_retention_period = 1

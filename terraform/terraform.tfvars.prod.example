@@ -1,0 +1,11 @@
+# Production profile — multi-AZ standby and a week of backups.
+# multi_az doubles instance cost; that is the deliberate trade-off.
+region             = "eu-north-1"
+cluster_name       = "devroom"
+node_instance_type = "t3.small"
+node_desired_size  = 2
+
+db_instance_class          = "db.t4g.small"
+db_multi_az                = true
+db_allocated_storage       = 50
+db_backup_retention_period = 7
