@@ -147,9 +147,11 @@ services:
       limits:   { memory: 768Mi, cpu: 500m }
 
 databases:
-  auth-db:    { database: authdb,    storage: 1Gi }
-  user-db:    { database: userdb,    storage: 1Gi }
-  message-db: { database: messagedb, storage: 1Gi }
+  # secretName is the Secrets Manager secret holding the RDS master credential.
+  # Empty locally (Minikube has no AWS); values-eks.yaml fills it in.
+  auth-db:    { database: authdb,    storage: 1Gi, secretName: "" }
+  user-db:    { database: userdb,    storage: 1Gi, secretName: "" }
+  message-db: { database: messagedb, storage: 1Gi, secretName: "" }
 
 infra:
   enabled: true
