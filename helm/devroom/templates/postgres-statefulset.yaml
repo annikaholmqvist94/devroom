@@ -1,4 +1,4 @@
-{{- if .Values.infra.enabled }}
+{{- if and .Values.infra.enabled .Values.infra.postgres.enabled }}
 {{- range $name, $db := .Values.databases }}
 ---
 apiVersion: apps/v1

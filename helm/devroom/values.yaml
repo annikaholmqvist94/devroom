@@ -154,8 +154,12 @@ databases:
   message-db: { database: messagedb, storage: 1Gi, secretName: "" }
 
 infra:
+  # Gates the whole in-cluster infra block (Postgres + RabbitMQ).
   enabled: true
   postgres:
+    # Turned off on EKS, where the databases live on RDS. RabbitMQ stays
+    # in-cluster either way — Amazon MQ is out of scope.
+    enabled: true
     image: postgres:16-alpine
     resources:
       requests: { memory: 256Mi, cpu: 100m }

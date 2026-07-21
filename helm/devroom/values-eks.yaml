@@ -1,8 +1,49 @@
-# Overrides for deploying the chart on EKS with images from ECR.
-# Illustrative only — this plan does not deploy (see terraform/README.md, plan-only).
-# Replace <ACCOUNT_ID> with the AWS account id (from `aws sts get-caller-identity`).
-# infra.enabled stays true (in-cluster Postgres/RabbitMQ); RDS arrives in Plan 18.
+# Overrides for deploying the chart on EKS with images from ECR and databases
+# on RDS.
+#
+# Illustrative only — Plan 17 and 18 are plan-only and never run `terraform
+# apply`, so the placeholders below have no real values yet. Fill them from
+# `terraform output` if this is ever deployed:
+#   <ACCOUNT_ID>          aws sts get-caller-identity
+#   <*_DB_ENDPOINT>       terraform output rds_endpoints
+#   <*_DB_SECRET>         terraform output rds_secret_arns
+#   <ESO_ROLE_ARN>        terraform output eso_role_arn
+#
+# Prerequisite: helm/install-external-secrets.sh
 global:
   imageRegistry: "<ACCOUNT_ID>.dkr.ecr.eu-north-1.amazonaws.com/devroom"
   imageTag: latest
   imagePullPolicy: Always
+
+# Databases move to RDS; RabbitMQ stays in-cluster (Amazon MQ is out of scope).
+infra:
+  enabled: true
+  postgres:
+    enabled: false
+
+externalSecrets:
+  enabled: true
+  region: eu-north-1
+  refreshInterval: 1h
+  secretStoreName: devroom-aws
+  serviceAccountName: devroom-external-secrets
+  roleArn: "<ESO_ROLE_ARN>"
+
+databases:
+  auth-db:
+    secretName: "<AUTH_DB_SECRET>"
+  user-db:
+    secretName: "<USER_DB_SECRET>"
+  message-db:
+    secretName: "<MESSAGE_DB_SECRET>"
+
+services:
+  auth-service:
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://<AUTH_DB_ENDPOINT>/authdb
+  user-service:
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://<USER_DB_ENDPOINT>/userdb
+  message-service:
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://<MESSAGE_DB_ENDPOINT>/messagedb
