@@ -28,12 +28,12 @@ spec:
         - name: POSTGRES_USER
           valueFrom:
             secretKeyRef:
-              name: db-credentials
+              name: {{ $name }}-credentials
               key: username
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: db-credentials
+              name: {{ $name }}-credentials
               key: password
         ports:
         - containerPort: 5432

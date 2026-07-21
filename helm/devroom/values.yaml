@@ -16,8 +16,8 @@ services:
       GATEWAY_REDIRECT_URI: http://devroom.local/login/oauth2/code/auth-service
       FRONTEND_REDIRECT_URI: http://devroom.local/
     secretEnv:
-      - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
-      - { name: SPRING_DATASOURCE_PASSWORD, secret: db-credentials, key: password }
+      - { name: SPRING_DATASOURCE_USERNAME, secret: auth-db-credentials, key: username }
+      - { name: SPRING_DATASOURCE_PASSWORD, secret: auth-db-credentials, key: password }
       - { name: SPRING_RABBITMQ_USERNAME, secret: rabbitmq-credentials, key: username }
       - { name: SPRING_RABBITMQ_PASSWORD, secret: rabbitmq-credentials, key: password }
       - { name: GATEWAY_CLIENT_SECRET, secret: oauth-client-secrets, key: gateway-client-secret }
@@ -40,8 +40,8 @@ services:
       SPRING_RABBITMQ_HOST: rabbitmq
       AUTH_ISSUER_URI: http://auth.devroom.local
     secretEnv:
-      - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
-      - { name: SPRING_DATASOURCE_PASSWORD, secret: db-credentials, key: password }
+      - { name: SPRING_DATASOURCE_USERNAME, secret: user-db-credentials, key: username }
+      - { name: SPRING_DATASOURCE_PASSWORD, secret: user-db-credentials, key: password }
       - { name: SPRING_RABBITMQ_USERNAME, secret: rabbitmq-credentials, key: username }
       - { name: SPRING_RABBITMQ_PASSWORD, secret: rabbitmq-credentials, key: password }
     probe:
@@ -63,8 +63,8 @@ services:
       AUTH_SERVICE_JWKS_URI: http://auth.devroom.local/oauth2/jwks
       USER_SERVICE_GRPC: static://user-service:9082
     secretEnv:
-      - { name: SPRING_DATASOURCE_USERNAME, secret: db-credentials, key: username }
-      - { name: SPRING_DATASOURCE_PASSWORD, secret: db-credentials, key: password }
+      - { name: SPRING_DATASOURCE_USERNAME, secret: message-db-credentials, key: username }
+      - { name: SPRING_DATASOURCE_PASSWORD, secret: message-db-credentials, key: password }
       - { name: SPRING_RABBITMQ_USERNAME, secret: rabbitmq-credentials, key: username }
       - { name: SPRING_RABBITMQ_PASSWORD, secret: rabbitmq-credentials, key: password }
     probe:
@@ -165,7 +165,15 @@ infra:
       limits:   { memory: 512Mi, cpu: 500m }
 
 secrets:
-  db-credentials:
+  # One credential per database — three RDS instances have three independent
+  # master passwords, so a shared secret cannot be synced from Secrets Manager.
+  auth-db-credentials:
+    username: dbuser
+    password: dbpass
+  user-db-credentials:
+    username: dbuser
+    password: dbpass
+  message-db-credentials:
     username: dbuser
     password: dbpass
   rabbitmq-credentials:
@@ -176,6 +184,15 @@ secrets:
     bot-service-client-secret: dev-bot-secret
   dev-mentor-secrets:
     openrouter-api-key: ""
+
+externalSecrets:
+  # Off by default: Minikube has no AWS to sync from.
+  enabled: false
+  region: eu-north-1
+  refreshInterval: 1h
+  secretStoreName: devroom-aws
+  serviceAccountName: devroom-external-secrets
+  roleArn: ""
 
 ingress:
   enabled: true
