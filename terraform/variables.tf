@@ -57,3 +57,15 @@ variable "db_backup_retention_period" {
   type        = number
   default     = 1
 }
+
+variable "app_namespace" {
+  description = "Kubernetes namespace the Devroom chart is released into"
+  type        = string
+  default     = "devroom"
+}
+
+variable "eso_service_account" {
+  description = "Name of the service account the chart creates for External Secrets Operator to assume"
+  type        = string
+  default     = "devroom-external-secrets"
+}

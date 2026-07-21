@@ -22,3 +22,8 @@ output "rds_secret_arns" {
   description = "Secrets Manager ARN of the RDS-managed master credential, per database"
   value       = { for k, db in aws_db_instance.devroom : k => db.master_user_secret[0].secret_arn }
 }
+
+output "eso_role_arn" {
+  description = "IAM role ARN for the chart's external-secrets service account annotation"
+  value       = aws_iam_role.eso.arn
+}
