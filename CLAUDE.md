@@ -181,7 +181,19 @@ git log --oneline | head -5
 - **ADR-0016 skriven:** AWS/EKS via Terraform, plan-only-avgränsningen och varför (kostnadskontroll, utan kostnad).
 - **Framtidsarbete (uttryckligen skjutet):** RDS + ALB/Route53 (Plan 18), S3-backend för Terraform-state (lokalt state räcker plan-only men inte för ett team), GitOps-utrullning (Terraform Cloud/Atlantis eller motsvarande) när/om planen någonsin ska köras med `apply`.
 
-**Nästa steg:** `terraform plan` mot kontot + merge. Sedan **Plan 18** — RDS + ALB/Route53.
+**Plan 18 (2026-07-19, branch `plan-18-rds-secrets`):** RDS + Secrets Manager + External Secrets Operator — plan-only, aldrig `apply`. Tre RDS PostgreSQL-instanser (auth/user/message), var sitt masterlösenord hanterat av RDS i Secrets Manager, och en IRSA-roll som låter External Secrets Operator läsa dem in i klustret.
+
+- **`terraform/rds.tf`:** en `aws_db_instance` per bounded context (authdb/userdb/messagedb) med `manage_master_user_password = true` — lösenordet genereras och lagras av RDS i Secrets Manager, når aldrig Terraform-state. Kostnadsvariabler (`db_instance_class`, `db_multi_az`, `db_backup_retention_period`) parametriserade via `terraform.tfvars.dev.example`/`.prod.example`. `aws_security_group.rds` tillåter bara port 5432 från EKS-nodernas security group.
+- **`terraform/irsa.tf`:** IAM-roll som chartets `devroom-external-secrets`-service account kan anta via klustrets OIDC-provider, scoped till `secretsmanager:GetSecretValue`/`DescribeSecret` på exakt de tre RDS-secreterna.
+- **Helm — `infra.postgres.enabled`:** `infra.enabled` visade sig gata tre saker (Postgres-StatefulSets, deras Services, RabbitMQ) i ett block. RabbitMQ ska stanna in-cluster på EKS (Amazon MQ utanför scope) medan Postgres flyttar till RDS, så en finkornigare `infra.postgres.enabled` skiljer dem åt. `values-eks.yaml` sätter `infra.enabled: true` + `infra.postgres.enabled: false`.
+- **Helm — `db-credentials` uppdelad i tre:** en secret per databas (`auth-db-credentials`, `user-db-credentials`, `message-db-credentials`) i stället för en delad, eftersom Helms mergesemantik ersätter listor helt (inte djup-mergear) och `secretEnv` på varje tjänst är en lista — tre separata secrets låter varje databas override:as oberoende i `values-eks.yaml`.
+- **`secretstore.yaml`/`externalsecret.yaml`:** en `SecretStore` (AWS-provider, JWT-auth via service account-annotationen `eks.amazonaws.com/role-arn`) + tre `ExternalSecret` som materialiserar RDS-secreterna som vanliga Kubernetes Secrets med samma namn tjänsternas `secretEnv` redan pekar på. `secret.yaml`:s loop över `.Values.secrets` hoppar bara över de tre db-credentials när `externalSecrets.enabled` är sant — `rabbitmq-credentials`, `oauth-client-secrets` och `dev-mentor-secrets` renderas fortfarande från `values.yaml` som förut.
+- **Ingen CloudWatch-export:** `aws_db_parameter_group` sätter `log_min_duration_statement = 1000` för slow-query-loggning till instansens egna Postgres-loggar, men `aws_db_instance` saknar `enabled_cloudwatch_logs_exports` — loggarna når inte Loki/Grafana (Alloy skrapar container-stdout, inte RDS). Medvetet bort: ingen konsument finns för en CloudWatch-export i det här repot, och att lägga till den utan en läsare bryter samma strikta wiring-regel som avgjorde ESO-vs-enbart-Terraform-valet.
+- **`helm/install-external-secrets.sh`:** installerar External Secrets Operator (chart 2.8.0) — bara meningsfullt på EKS, ingenting att synka från på Minikube.
+- **Verifierat:** `terraform plan` mot ett riktigt AWS-konto grön (73 to add, read-only, `apply` körs aldrig), `helm lint`/`template` gröna, diff mot förra Helm-renderingen (`/tmp/devroom-after.yaml`) helt tom — dokumentationsändringarna rör inte chartets renderade output.
+- **ADR-0017 skriven:** tre RDS-instanser vs en delad, `manage_master_user_password` vs `random_password`, External Secrets Operator vs Spring Cloud AWS/CSI-driver/enbart Terraform.
+
+**Nästa steg:** **Plan 19** — edge (ALB, ACM, Route53).
 
 ## Nyckel-dokument (läs vid sessionsstart)
 
@@ -221,3 +233,4 @@ git log --oneline | head -5
 - **ADR-0007** Spring Cloud Gateway WebMVC-variant istället för WebFlux — konsistens med övriga services (servlet-stack, `SecurityFilterChain`).
 - **ADR-0008** Bot Service använder RestClient + `OAuth2ClientHttpRequestInterceptor` (inte WebClient + filter-function) för Client Credentials — samma servlet-konsolidering som ADR-0007.
 - **ADR-0009** Minikube + port-forward för lokal K8s-demo (ingen ingress controller, ingen LoadBalancer-tunnel) — snabb setup, förutsägbara URLer, byts till cloud-managed ingress vid molnmigration utan att manifesten ändras.
+- **ADR-0017** Tre RDS-instanser (inte en delad), `manage_master_user_password` (inte `random_password`), External Secrets Operator (inte Spring Cloud AWS eller CSI-drivrutinen) — plan-only, utan kostnad.

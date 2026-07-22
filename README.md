@@ -8,7 +8,7 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md) for the f
 
 ## Status
 
-17 planer klara: kärnsystemet (Plan 1–10) + hela DevOps-utbyggnaden Fas A–D
+18 planer klara: kärnsystemet (Plan 1–10) + hela DevOps-utbyggnaden Fas A–D
 (Helm → Traefik → observability → CI/CD → AWS/Terraform).
 
 | # | Komponent | Plan | Klar |
@@ -30,6 +30,7 @@ See [design spec](docs/superpowers/specs/2026-05-10-devroom-design.md) for the f
 | 15 | Tracing: Tempo + Micrometer (OTLP via Alloy + ADR-0014) | 15 | 2026-07-15 |
 | 16 | CI/CD: build + push images till GHCR (ADR-0015) | 16 | 2026-07-15 |
 | 17 | AWS/EKS via Terraform (plan-only, utan kostnad — ADR-0016) | 17 | 2026-07-19 |
+| 18 | RDS + Secrets Manager + External Secrets Operator (plan-only — ADR-0017) | 18 | 2026-07-19 |
 
 ## Arkitektur
 
@@ -231,6 +232,24 @@ Verifierat mot ett riktigt AWS-konto: `terraform plan` → `Plan: 65 to add, 0 t
 0 to destroy` (VPC + EKS + node group + 6 ECR-repos + IAM/KMS). Read-only, utan kostnad,
 `apply` körs aldrig.
 
+### RDS, Secrets Manager och External Secrets Operator (plan-only)
+
+Se [ADR-0017](docs/adr/0017-rds-secrets-manager.md). `terraform/rds.tf` lägger en RDS
+PostgreSQL-instans per databas (authdb/userdb/messagedb) med
+`manage_master_user_password = true` — lösenordet genereras och lagras av RDS i Secrets
+Manager, aldrig i Terraform-state. `terraform/irsa.tf` ger en IAM-roll rättighet att läsa
+exakt de tre secreterna. I klustret hämtar External Secrets Operator dem in som vanliga
+Kubernetes Secrets via chartets `secretstore.yaml`/`externalsecret.yaml`, och en ny
+`infra.postgres.enabled`-toggle stänger av de in-cluster Postgres-StatefulSets på EKS medan
+RabbitMQ stannar in-cluster (`infra.enabled`).
+
+```bash
+terraform -chdir=terraform plan   # samma kommando, nu 73 to add (+ RDS + IRSA)
+bash helm/install-external-secrets.sh                # ESO — bara meningsfullt på EKS
+# Deploya (hypotetiskt, ej i denna plan):
+#   helm ... -f helm/devroom/values-eks.yaml   # infra.postgres.enabled: false, externalSecrets.enabled: true
+```
+
 ### Komponenter under utveckling lokalt
 
 ```bash
@@ -288,15 +307,17 @@ Se [docs/adr/](docs/adr/) för fullständig lista.
 - **[ADR-0014](docs/adr/0014-tempo-tracing.md)** — Tempo + Micrometer Tracing (OTLP via Alloy)
 - **[ADR-0015](docs/adr/0015-cicd-ghcr.md)** — CI/CD som bygger + pushar images till GHCR
 - **[ADR-0016](docs/adr/0016-aws-eks-terraform.md)** — AWS EKS-fundament via Terraform (plan-only, utan kostnad)
+- **[ADR-0017](docs/adr/0017-rds-secrets-manager.md)** — RDS, Secrets Manager (RDS-hanterat masterlösenord) och External Secrets Operator (plan-only)
 
 ## Designdokument
 
 - [Design spec](docs/superpowers/specs/2026-05-10-devroom-design.md) — 15 sektioner från arkitektur till deployment
-- [Planer](docs/superpowers/plans/) — 17 implementations-planer (en per steg)
+- [Planer](docs/superpowers/plans/) — 18 implementations-planer (en per steg)
 
 ## Out of scope
 
 DM, refresh-tokens i frontend, multi-team, avatar-upload, WebSockets, mTLS,
-HA-Postgres, RabbitMQ-clustering, live cloud-deployment (`terraform apply` —
-AWS-fundamentet finns som plan-only Terraform), managed RDS/Amazon MQ (Plan 18).
+HA-Postgres, RabbitMQ-clustering (Amazon MQ är utanför scope — RabbitMQ stannar in-cluster
+även på EKS), live cloud-deployment (`terraform apply` — AWS-fundamentet inkl. RDS finns som
+plan-only Terraform), edge/ALB/ACM/Route53 (Plan 19).
 Kärnsystemets ursprungliga avgränsningar finns i designspec sektion 15.
